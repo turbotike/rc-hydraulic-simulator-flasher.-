@@ -387,7 +387,16 @@ def write_config(cfg):
                  "travelAlarmBothDirections"]
     for var in bool_vars:
         if var in cfg:
-            val = str(cfg[var]).lower()  # ensure string "true"/"false"
+            # Normalize: accept bool, string, or int → always "true"/"false"
+            raw = cfg[var]
+            if isinstance(raw, bool):
+                val = "true" if raw else "false"
+            elif isinstance(raw, int):
+                val = "true" if raw else "false"
+            elif isinstance(raw, str):
+                val = "true" if raw.lower() in ("true", "1") else "false"
+            else:
+                val = str(raw).lower()
             text = re.sub(
                 r'(\b' + var + r'\s*=\s*)(true|false)',
                 r'\g<1>' + val,
@@ -638,7 +647,7 @@ def find_pio():
         return pio2
     return "pio"
 
-def run_build(upload=False):
+def run_build(upload=False, port=None):
     global build_log, build_running
     build_log = []
     build_running = True
@@ -646,6 +655,8 @@ def run_build(upload=False):
     cmd = [pio, "run"]
     if upload:
         cmd.append("--target=upload")
+        if port:
+            cmd.extend(["--upload-port", port])
     try:
         proc = subprocess.Popen(cmd, cwd=PROJECT_DIR,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -941,7 +952,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if build_running:
                 self._json({"ok": False, "error": "Build already running"})
             else:
-                threading.Thread(target=run_build, args=(True,), daemon=True).start()
+                data = json.loads(body) if body.strip() else {}
+                port = data.get("port", "") or None
+                threading.Thread(target=run_build, args=(True, port), daemon=True).start()
                 self._json({"ok": True})
 
         elif path == "/api/install_sound":
@@ -956,9 +969,43 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if not re.match(r'^[a-zA-Z0-9_]+\.h$', fn):
                     self._json({"ok": False, "error": "Invalid filename characters"}, 400)
                     return
+                # Auto-increment filename if it already exists
+                base = fn[:-2]  # strip ".h"
                 fpath = os.path.join(SOUNDS_DIR, fn)
+                counter = 1
+                while os.path.exists(fpath):
+                    fn = base + str(counter) + ".h"
+                    fpath = os.path.join(SOUNDS_DIR, fn)
+                    counter += 1
+                # Update variable names inside the header content to match new filename
+                if counter > 1:
+                    new_var = fn[:-2]  # e.g. "MySound1"
+                    content = re.sub(
+                        r'(const\s+(?:unsigned\s+int|signed\s+char)\s+)(\w+)(Samples|SampleRate|SampleCount)',
+                        lambda m: m.group(1) + new_var + m.group(3),
+                        content
+                    )
                 with open(fpath, "w", encoding="utf-8") as f:
                     f.write(content)
+                self._json({"ok": True, "file": fn})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        elif path == "/api/delete_sound":
+            try:
+                data = json.loads(body)
+                fn = os.path.basename(data.get("filename", ""))
+                if not fn or not fn.endswith(".h"):
+                    self._json({"ok": False, "error": "Invalid filename"}, 400)
+                    return
+                if not re.match(r'^[a-zA-Z0-9_]+\.h$', fn):
+                    self._json({"ok": False, "error": "Invalid filename characters"}, 400)
+                    return
+                fpath = os.path.join(SOUNDS_DIR, fn)
+                if not os.path.isfile(fpath):
+                    self._json({"ok": False, "error": "File not found"}, 404)
+                    return
+                os.remove(fpath)
                 self._json({"ok": True, "file": fn})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
@@ -1414,7 +1461,7 @@ function renderTabs() {
 function activateTab(id) {
   document.querySelectorAll('.tree-node').forEach(n => n.classList.toggle('active', n.dataset.tab === id));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'p-'+id));
-  if (id === 'build') pollBuild();
+  if (id === 'build') { pollBuild(); refreshFlashPorts(); }
   if (id === 'soundtech') { stLoadBrowser(); if (typeof refreshSndpackPorts === 'function') refreshSndpackPorts(); }
   if (id === 'servos' && typeof refreshPorts === 'function') refreshPorts();
   const st = document.getElementById('treeStatus');
@@ -1758,6 +1805,12 @@ function panelServos() {
 function panelBuild() {
   return `<div class="panel" id="p-build">
     <div class="section-title">&#9881; Build &amp; Flash</div>
+    <div style="display:flex; gap:8px; margin-bottom:8px; align-items:center; flex-wrap:wrap;">
+      <select id="flashPort" style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:12px;font-family:var(--font);min-width:180px;">
+        <option value="">Auto-detect port...</option>
+      </select>
+      <button class="btn btn-ghost btn-sm" onclick="refreshFlashPorts()">&#8635; Refresh</button>
+    </div>
     <div style="display:flex; gap:8px; margin-bottom:12px; align-items:center">
       <button class="btn btn-primary btn-sm" onclick="startBuild(false)">&#9881; Build</button>
       <button class="btn btn-primary btn-sm" onclick="startBuild(true)">&#9889; Build &amp; Flash</button>
@@ -2170,7 +2223,8 @@ function stRenderBrowser() {
       '<td style="padding:5px 8px;font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px" title="' + s.label + '">' +
       (s.file === _sbCurrentFile ? '&#9654; ' : '') + s.label + '</td>' +
       '<td style="padding:5px 4px;text-align:center"><span style="color:' + color + ';font-size:10px;background:var(--surface);padding:1px 6px;border-radius:8px">' + s.category + '</span></td>' +
-      '<td style="padding:5px 4px;text-align:center"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();sbLoadAndPlay(\'' + s.file.replace(/'/g, "\\'") + '\')" title="Load & Play">&#9654;</button></td></tr>';
+      '<td style="padding:5px 4px;text-align:center"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();sbLoadAndPlay(\'' + s.file.replace(/'/g, "\\'") + '\')" title="Load & Play">&#9654;</button></td>' +
+      '<td style="padding:5px 4px;text-align:center"><button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="event.stopPropagation();stDeleteSound(\'' + s.file.replace(/'/g, "\\'") + '\')" title="Delete">&#128465;</button></td></tr>';
   }).join('');
 }
 
@@ -2207,6 +2261,25 @@ async function sbLoadSound(filename) {
 async function sbLoadAndPlay(filename) {
   await sbLoadSound(filename);
   sbPlay();
+}
+
+async function stDeleteSound(filename) {
+  if (!confirm('Delete ' + filename + '? This cannot be undone.')) return;
+  try {
+    const r = await fetch('/api/delete_sound', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ filename: filename })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      toast('Deleted ' + filename, true);
+      if (_sbCurrentFile === filename) { _sbCurrentFile = null; _sbBuffer = null; _sbRawSamples = null; }
+      stLoadBrowser();
+    } else {
+      toast('Delete failed: ' + (d.error || '?'), false);
+    }
+  } catch(e) { toast('Delete error: ' + e, false); }
 }
 
 // Import a WAV file from the user's computer into the Live Sound Editor
@@ -2359,7 +2432,7 @@ function sbBuildHeader(varName, slice, rate, region, speed) {
   }
   if (row.trim()) lines.push(row);
   lines.push('};');
-  return lines.join('\\n');
+  return lines.join('\n');
 }
 
 function sbExportSelection() {
@@ -2394,7 +2467,7 @@ async function sbInstallSelection() {
     });
     const data = await resp.json();
     if (data.ok) {
-      toast('Installed ' + filename + ' to sounds folder', true);
+      toast('Installed ' + (data.file || filename) + ' to sounds folder', true);
       stLoadBrowser();
     } else {
       toast('Install failed: ' + (data.error || '?'), false);
@@ -2486,10 +2559,10 @@ function panelSoundTech() {
           </div>
           <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap">
             <label style="color:#f472b6;font-size:12px;white-space:nowrap">Crossfade:</label>
-            <input id="sbCrossfade" type="range" min="0" max="100" step="1" value="10"
+            <input id="sbCrossfade" type="range" min="0" max="100" step="1" value="0"
               style="flex:1;min-width:100px;accent-color:#f472b6"
               oninput="document.getElementById('sbCrossfadeLabel').textContent=this.value+'%'; if(_sbPlaying){if(_sbSwapTimer)clearTimeout(_sbSwapTimer);_sbSwapTimer=setTimeout(_sbHotSwap,150);}">
-            <span id="sbCrossfadeLabel" style="color:#f472b6;font-size:11px;min-width:30px">10%</span>
+            <span id="sbCrossfadeLabel" style="color:#f472b6;font-size:11px;min-width:30px">0%</span>
             <span style="color:var(--dim);font-size:10px">(blends end&rarr;start for seamless loop)</span>
           </div>
           <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap">
@@ -2560,6 +2633,7 @@ function panelSoundTech() {
         ${liveSlider('hydraulicPumpVolumePercentage', 'Hyd. Pump', 0, 300, '%')}
         ${liveSlider('hydraulicFlowVolumePercentage', 'Hyd. Flow', 0, 300, '%')}
         ${liveSlider('trackRattleVolumePercentage', 'Track Rattle', 0, 300, '%')}
+        ${liveToggle('trackRattle2Enabled', 'Track Rattle 2', 'Secondary track rattle triggered by track movement')}
         ${liveSlider('bucketRattleVolumePercentage', 'Bucket Rattle', 0, 300, '%')}
         ${liveSlider('escRampTimeLow', 'ESC Ramp (Low)', 5, 200, 'ms')}
         ${liveSlider('escRampTimeHigh', 'ESC Ramp (High)', 5, 200, 'ms')}
@@ -2662,6 +2736,14 @@ function _gatherCfg() {
   CFG.sounds = CFG.sounds || {};
   document.querySelectorAll('[data-sound]').forEach(sel => {
     CFG.sounds[sel.dataset.sound] = sel.value;
+  });
+  // Sync toggle checkboxes into CFG so stale values don't get saved
+  document.querySelectorAll('.sw input[type=checkbox]').forEach(cb => {
+    const m = cb.getAttribute('onchange');
+    if (m) {
+      const km = m.match(/CFG\['(\w+)'\]/);
+      if (km) CFG[km[1]] = cb.checked ? 'true' : 'false';
+    }
   });
   return CFG;
 }
@@ -2834,10 +2916,35 @@ async function startBuild(upload) {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify(CFG)
   });
-  const url = upload ? '/api/upload' : '/api/build';
-  await fetch(url, {method:'POST'});
+  if (upload) {
+    const port = document.getElementById('flashPort')?.value || '';
+    await fetch('/api/upload', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ port: port })
+    });
+  } else {
+    await fetch('/api/build', {method:'POST'});
+  }
   toast(upload ? 'Build & flash started...' : 'Build started...', true);
   pollBuild();
+}
+
+async function refreshFlashPorts() {
+  const sel = document.getElementById('flashPort');
+  if (!sel) return;
+  try {
+    const r = await fetch('/api/serial_ports');
+    const ports = await r.json();
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">Auto-detect port...</option>';
+    ports.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.port;
+      opt.textContent = p.port + (p.desc && p.desc !== p.port ? ' \u2014 ' + p.desc : '');
+      sel.appendChild(opt);
+    });
+    if (prev) sel.value = prev;
+  } catch(e) { console.error('refreshFlashPorts:', e); }
 }
 
 function pollBuild() {

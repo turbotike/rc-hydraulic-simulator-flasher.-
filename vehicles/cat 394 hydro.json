@@ -90,7 +90,7 @@
   "hydraulicDeadZone": 50,
   "travelAlarmBothDirections": "false",
   "INDICATOR_DIR": "true",
-  "autoEngineStart": "false",
+  "autoEngineStart": "true",
   "automatic": "false",
   "doubleClutch": "false",
   "shiftingAutoThrottle": "true",

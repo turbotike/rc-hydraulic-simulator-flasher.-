@@ -1,4 +1,4 @@
-﻿// Exported from Live Sound Builder
+// Exported from Live Sound Builder
 // Loop region: 0.000s - 5.459s
 #pragma once
 const unsigned int startup_sampleRate = 22050;

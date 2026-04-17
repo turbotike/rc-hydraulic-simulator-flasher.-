@@ -14,8 +14,8 @@
   "dieselKnockInterval": 6,
   "dieselKnockStartPoint": 110,
   "dieselKnockAdaptiveVolumePercentage": 50,
-  "turboVolumePercentage": 35,
-  "turboIdleVolumePercentage": 20,
+  "turboVolumePercentage": 90,
+  "turboIdleVolumePercentage": 30,
   "chargerVolumePercentage": 0,
   "chargerIdleVolumePercentage": 10,
   "chargerStartPoint": 10,
@@ -29,12 +29,12 @@
   "brakeVolumePercentage": 150,
   "shiftingVolumePercentage": 100,
   "sound1VolumePercentage": 100,
-  "reversingVolumePercentage": 70,
+  "reversingVolumePercentage": 205,
   "indicatorVolumePercentage": 100,
   "couplingVolumePercentage": 100,
   "hydraulicPumpVolumePercentage": 120,
   "hydraulicFlowVolumePercentage": 0,
-  "trackRattleVolumePercentage": 150,
+  "trackRattleVolumePercentage": 175,
   "trackRattle2VolumePercentage": 150,
   "bucketRattleVolumePercentage": 160,
   "masterVolume": 260,
@@ -74,7 +74,7 @@
   "pwmStrokeChainDriveTopSpeed": 255,
   "pwmStrokeChainDriveStartRotation": 70,
   "trackRattleIntervalMin": 90,
-  "trackRattleIntervalMax": 500,
+  "trackRattleIntervalMax": 305,
   "pulseNeutral": 30,
   "pulseSpan": 400,
   "MAX_RPM_PERCENTAGE": 200,
@@ -84,7 +84,7 @@
   "escRampTimeLow": 20,
   "escRampTimeHigh": 50,
   "escBrakeSteps": 30,
-  "escAccelerationSteps": 3,
+  "escAccelerationSteps": 6,
   "hiLoRatioPercent": 60,
   "hydraulicRampTime": 200,
   "hydraulicDeadZone": 50,
@@ -132,7 +132,7 @@
     "16": true
   },
   "sounds": {
-    "startSound": "startup1.h",
+    "startSound": "startup3.h",
     "idleSound": "idle.h",
     "revSound": "idle.h",
     "knockSound": "Caterpillar323Knock.h",
@@ -156,12 +156,12 @@
     "bucketRattleSound": "Caterpillar323BucketRattle.h"
   },
   "revSoundEnabled": "true",
-  "trackRattle2Enabled": "false",
+  "trackRattle2Enabled": "true",
   "couplingSoundEnabled": true,
-  "debugRc": "false",
-  "debugEsc": "false",
-  "debugSound": "false",
-  "debugHydraulic": "false",
+  "debugRc": "true",
+  "debugEsc": "true",
+  "debugSound": "true",
+  "debugHydraulic": "true",
   "servoMin": [
     1000,
     1000,
@@ -183,5 +183,5 @@
     1500,
     1500
   ],
-  "hiLoEnabled": "false"
+  "hiLoEnabled": "true"
 }

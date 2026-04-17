@@ -153,7 +153,7 @@ boolean left;
 boolean right;
 
 // Sound state
-volatile boolean engineOn = false;
+volatile boolean engineOn = true;   // Engine ON at power-up (toggle off/on with CH9)
 volatile boolean engineStart = false;
 volatile boolean engineRunning = false;
 volatile boolean tracksAreRotating = false;
@@ -307,7 +307,7 @@ void IRAM_ATTR variablePlaybackTimer() {
     variableTimerTicks = 4000000 / startSampleRate;
     timerAlarmWrite(variableTimer, variableTimerTicks, true);
     a = 0;
-    if (engineOn) {
+    if (engineOn && dacOffset >= 128) {  // Wait for DAC offset fade before starting
       engineState = STARTING;
       engineStart = true;
     }
@@ -765,6 +765,16 @@ void readSbusCommands() {
 
 void readIbusCommands() {
 #if defined IBUS_COMMUNICATION
+  // Must call iBus.loop() to parse incoming serial data before reading channels
+  static unsigned long lastIbusRead;
+  static uint16_t iBusReadCycles;
+  if (millis() - lastIbusRead > 5) {
+    lastIbusRead = millis();
+    iBus.loop();
+    if (iBusReadCycles < 100) iBusReadCycles++;
+    else if (!ibusInit) ibusInit = true;
+  }
+  if (!ibusInit) return; // Wait for buffer to fill before reading
   for (int i = 0; i < 14; i++) {
     uint16_t val = iBus.readChannel(i);
     if (val > 0) pulseWidthRaw[i + 1] = val;
@@ -850,22 +860,15 @@ void mapThrottle() {
   if (millis() - lastFrame < 4) return;
   lastFrame = millis();
 
-  // ── Engine on/off control (unified for all modes) ──
-  if (autoEngineStart) {
-    // Auto-start: engine on when throttle moves, off after 3s idle
-    static unsigned long idleTimer = 0;
-    boolean stickMoved = abs((int)pulseWidth[CH_THROTTLE] - 1500) > 80;
-    if (stickMoved) idleTimer = millis();
-    if (!engineOn && stickMoved) engineOn = true;
-    if (engineOn && !stickMoved && millis() - idleTimer > 3000) engineOn = false;
-  } else {
-    // Manual toggle via CH_ENGINE_TOGGLE (rising edge >1700µs)
+  // ── Engine on/off control ──
+  // CH9 toggle ONLY — no auto-start
+  {
     static boolean engineToggle = false;
-    if (pulseWidth[CH_ENGINE_TOGGLE] > 1700 && !engineToggle) {
+    if (CH_ENGINE_TOGGLE > 0 && pulseWidth[CH_ENGINE_TOGGLE] > 1700 && !engineToggle) {
       engineOn = !engineOn;
       engineToggle = true;
     }
-    if (pulseWidth[CH_ENGINE_TOGGLE] < 1600) engineToggle = false;
+    if (CH_ENGINE_TOGGLE == 0 || pulseWidth[CH_ENGINE_TOGGLE] < 1600) engineToggle = false;
   }
 
   // ── Throttle mapping (mode-specific) ──
@@ -889,6 +892,43 @@ void mapThrottle() {
   }
   currentThrottle = constrain(currentThrottle, 0, 500);
 #endif
+
+  // ── Auto idle-down: if throttle is up but nothing is moving, idle down after 4s ──
+  {
+    static unsigned long lastActivity = 0;
+    static boolean idledDown = false;
+    static int16_t prevThrottle = 0;
+
+    // Detect any control activity (tracks, blade, ripper, or throttle change)
+    boolean activity = false;
+#if defined DOZER_MODE
+    activity = abs((int)pulseWidth[CH_DZ_TRACK_L] - 1500) > 80
+            || abs((int)pulseWidth[CH_DZ_TRACK_R] - 1500) > 80
+            || abs((int)pulseWidth[CH_DZ_BLADE] - 1500) > 80
+            || abs((int)pulseWidth[CH_DZ_RIPPER] - 1500) > 80;
+#elif defined EXCAVATOR_MODE
+    activity = abs((int)pulseWidth[CH_EX_TRACK_L] - 1500) > 80
+            || abs((int)pulseWidth[CH_EX_TRACK_R] - 1500) > 80
+            || abs((int)pulseWidth[CH_EX_BOOM] - 1500) > 80
+            || abs((int)pulseWidth[CH_EX_STICK] - 1500) > 80
+            || abs((int)pulseWidth[CH_EX_BUCKET] - 1500) > 80;
+#endif
+
+    // Throttle stick movement also counts as activity (cycling throttle snaps out of idle-down)
+    if (abs(currentThrottle - prevThrottle) > 30) activity = true;
+    prevThrottle = currentThrottle;
+
+    if (activity) {
+      lastActivity = millis();
+      idledDown = false;
+    }
+
+    // After 4s of no activity, drop to 25% of commanded throttle
+    if (currentThrottle > 0 && !activity && millis() - lastActivity > 4000) {
+      currentThrottle = currentThrottle / 4;
+      idledDown = true;
+    }
+  }
 
   // Throttle smoothing
   static int16_t lastThrottle = 0;
@@ -914,36 +954,27 @@ void mapThrottle() {
   // Double flick (2 toggles within 500ms): cycle mode: front → work → all → front
   {
     static boolean lightsToggleLock = false;
-    static unsigned long lastFlickTime = 0;
-    static uint8_t flickCount = 0;
-    static unsigned long flickWindow = 500; // ms window for double-flick
 
     if (pulseWidth[CH_LIGHTS] > 1700 && !lightsToggleLock) {
       lightsToggleLock = true;
-      unsigned long now = millis();
 
-      if (now - lastFlickTime < flickWindow) {
-        flickCount++;
-      } else {
-        flickCount = 1;
-      }
-      lastFlickTime = now;
-
-      if (flickCount >= 2) {
-        // Double-flick: cycle mode
-        lightsMode++;
-        if (lightsMode > 3) lightsMode = 1; // wrap 1→2→3→1 (skip 0=off)
-        lightsOn = true;
-        lightsState = 1;
-        flickCount = 0;
-      } else {
-        // Single flick: toggle on/off
-        lightsOn = !lightsOn;
-        lightsState = lightsOn ? 1 : 0;
-        if (lightsOn && lightsMode == 0) lightsMode = 1; // default to front lights
-      }
+      // Cycle: off → headlights → work lights → both → off
+      lightsMode++;
+      if (lightsMode > 3) lightsMode = 0;
+      lightsOn = (lightsMode > 0);
+      lightsState = lightsOn ? 1 : 0;
     }
     if (pulseWidth[CH_LIGHTS] < 1600) lightsToggleLock = false;
+  }
+
+  // ── Light GPIO output ──
+  // lightsMode: 0=off, 1=front only, 2=work only, 3=all
+  if (lightsOn && lightsState) {
+    digitalWrite(HEADLIGHT_PIN, (lightsMode == 1 || lightsMode == 3) ? HIGH : LOW);
+    digitalWrite(WORKLIGHT_PIN, (lightsMode == 2 || lightsMode == 3) ? HIGH : LOW);
+  } else {
+    digitalWrite(HEADLIGHT_PIN, LOW);
+    digitalWrite(WORKLIGHT_PIN, LOW);
   }
 }
 
@@ -1017,7 +1048,7 @@ void esc() {
   lastFrame = millis();
 
   // Hi/Lo range toggle
-  #if hiLoEnabled
+  #ifdef HILO_ENABLED
   static boolean hiLoToggle = false;
   if (pulseWidth[CH_HILO_TOGGLE] > 1700 && !hiLoToggle) {
     hiLoIsHigh = !hiLoIsHigh;
@@ -1029,7 +1060,7 @@ void esc() {
   // Compute effective ESC limits (narrowed in low range)
   uint16_t effectiveMax = escPulseMax;
   uint16_t effectiveMin = escPulseMin;
-  #if hiLoEnabled
+  #ifdef HILO_ENABLED
   if (!hiLoIsHigh) {
     uint16_t fwdRange = (escPulseMax - 1500) * hiLoRatioPercent / 100;
     uint16_t revRange = (1500 - escPulseMin) * hiLoRatioPercent / 100;
@@ -1044,9 +1075,11 @@ void esc() {
   switch (driveState) {
   case 0: // Standing still
     escPulseWidth = 1500;
+#ifndef DOZER_MODE
     escIsBraking = false;
     escIsDriving = false;
     escInReverse = false;
+#endif
     if (pulse() == 1) driveState = 1;
     if (pulse() == -1) driveState = 3;
     break;
@@ -1055,9 +1088,11 @@ void esc() {
     target = map(currentSpeed, 0, 500, 1500, effectiveMax);
     if (escPulseWidth < target) escPulseWidth += escAccelerationSteps;
     if (escPulseWidth > target) escPulseWidth = target;
+#ifndef DOZER_MODE
     escIsDriving = true;
     escIsBraking = false;
     escInReverse = false;
+#endif
     if (pulse() == 0) driveState = 2;
     if (pulse() == -1) driveState = 2;
     break;
@@ -1065,16 +1100,20 @@ void esc() {
   case 2: // Braking (forward)
     if (escPulseWidth > 1500) escPulseWidth -= escBrakeSteps;
     if (escPulseWidth <= 1500) { escPulseWidth = 1500; driveState = 0; }
+#ifndef DOZER_MODE
     escIsBraking = true;
+#endif
     break;
 
   case 3: // Reverse
     target = map(currentSpeed, 0, 500, 1500, effectiveMin);
     if (escPulseWidth > target) escPulseWidth -= escAccelerationSteps;
     if (escPulseWidth < target) escPulseWidth = target;
+#ifndef DOZER_MODE
     escIsDriving = true;
     escIsBraking = false;
     escInReverse = true;
+#endif
     if (pulse() == 0) driveState = 4;
     if (pulse() == 1) driveState = 4;
     break;
@@ -1082,7 +1121,9 @@ void esc() {
   case 4: // Braking (reverse)
     if (escPulseWidth < 1500) escPulseWidth += escBrakeSteps;
     if (escPulseWidth >= 1500) { escPulseWidth = 1500; driveState = 0; }
+#ifndef DOZER_MODE
     escIsBraking = true;
+#endif
     break;
   }
 
@@ -1098,31 +1139,46 @@ void esc() {
 // ════════════════════════════════════════════════════════════════
 
 void mcpwmOutput() {
-  // Pass RC channels to servos with ramping
-  static uint16_t servo1 = 1500, servo2 = 1500;
   static unsigned long lastFrame = millis();
   if (millis() - lastFrame < 10) return;
   lastFrame = millis();
 
-  // CH1 → Servo 1
-  uint16_t target1 = constrain(pulseWidth[1], servoMin[0], servoMax[0]);
-  if (servo1 < target1) servo1 = min((uint16_t)(servo1 + 5), target1);
-  if (servo1 > target1) servo1 = max((uint16_t)(servo1 - 5), target1);
-  mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, servo1);
+  // Engine off → servos locked at center. Engine on → passthrough.
+  uint16_t out1, out2, out3, out4;
+  if (engineRunning) {
+    out1 = constrain(pulseWidth[CH_DZ_TRACK_R], servoMin[0], servoMax[0]);
+    out2 = constrain(pulseWidth[CH_DZ_TRACK_L], servoMin[1], servoMax[1]);
+    out3 = constrain(pulseWidth[CH_DZ_BLADE],   servoMin[2], servoMax[2]);
+    out4 = constrain(pulseWidth[CH_DZ_RIPPER],  servoMin[3], servoMax[3]);
+  } else {
+    out1 = 1500;
+    out2 = 1500;
+    out3 = 1500;
+    out4 = 1500;
+  }
 
-  // CH2 → Servo 2
-  uint16_t target2 = constrain(pulseWidth[2], servoMin[1], servoMax[1]);
-  if (servo2 < target2) servo2 = min((uint16_t)(servo2 + 5), target2);
-  if (servo2 > target2) servo2 = max((uint16_t)(servo2 - 5), target2);
-  mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, servo2);
+  // Hi/Lo: scale track servo throw in low range
+  #ifdef HILO_ENABLED
+  if (!hiLoIsHigh) {
+    int16_t dev1 = (int16_t)out1 - 1500;
+    int16_t dev2 = (int16_t)out2 - 1500;
+    out1 = 1500 + (dev1 * hiLoRatioPercent / 100);
+    out2 = 1500 + (dev2 * hiLoRatioPercent / 100);
+  }
+  #endif
 
-  // CH3 → Servo 3 (LEDC)
-  uint16_t s3 = constrain(pulseWidth[3], servoMin[2], servoMax[2]);
-  ledcWrite(0, map(s3, 1000, 2000, 0, 8191));
+  // CH_DZ_TRACK_R → Servo 1 (MCPWM)
+  mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, out1);
 
-  // CH4 → Servo 4 (LEDC)
-  uint16_t s4 = constrain(pulseWidth[4], servoMin[3], servoMax[3]);
-  ledcWrite(1, map(s4, 1000, 2000, 0, 8191));
+  // CH_DZ_TRACK_L → Servo 2 (MCPWM)
+  mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, out2);
+
+  // CH_DZ_BLADE → Servo 3 (LEDC as servo PWM: 1000-2000µs at 50Hz 13-bit)
+  // 50Hz = 20000µs period, 13-bit = 8192 steps → 1 step = 20000/8192 ≈ 2.44µs
+  ledcWrite(0, out3 * 8192UL / 20000);
+
+  // CH_DZ_RIPPER → Servo 4 (LEDC as servo PWM)
+  ledcWrite(1, out4 * 8192UL / 20000);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1317,21 +1373,61 @@ void craneControl() {
 
 #if defined DOZER_MODE
 void dozerControl() {
-  // Blade lift → pump volume
+  // ── Track rattle (from track stick movement) ──
+  static boolean trackLisRotating = false, trackRisRotating = false;
+
+  uint16_t trackLVol = 0;
+  if (pulseWidth[CH_DZ_TRACK_L] > pulseMaxNeutral[CH_DZ_TRACK_L]) {
+    trackLVol = map(pulseWidth[CH_DZ_TRACK_L], pulseMaxNeutral[CH_DZ_TRACK_L], pulseMax[CH_DZ_TRACK_L], 0, 100);
+    trackLisRotating = true;
+  } else if (pulseWidth[CH_DZ_TRACK_L] < pulseMinNeutral[CH_DZ_TRACK_L]) {
+    trackLVol = map(pulseWidth[CH_DZ_TRACK_L], pulseMinNeutral[CH_DZ_TRACK_L], pulseMin[CH_DZ_TRACK_L], 0, 100);
+    trackLisRotating = true;
+  } else {
+    trackLisRotating = false;
+  }
+
+  uint16_t trackRVol = 0;
+  if (pulseWidth[CH_DZ_TRACK_R] > pulseMaxNeutral[CH_DZ_TRACK_R]) {
+    trackRVol = map(pulseWidth[CH_DZ_TRACK_R], pulseMaxNeutral[CH_DZ_TRACK_R], pulseMax[CH_DZ_TRACK_R], 0, 100);
+    trackRisRotating = true;
+  } else if (pulseWidth[CH_DZ_TRACK_R] < pulseMinNeutral[CH_DZ_TRACK_R]) {
+    trackRVol = map(pulseWidth[CH_DZ_TRACK_R], pulseMinNeutral[CH_DZ_TRACK_R], pulseMin[CH_DZ_TRACK_R], 0, 100);
+    trackRisRotating = true;
+  } else {
+    trackRVol = 0;
+    trackRisRotating = false;
+  }
+
+  tracksAreRotating = trackLisRotating || trackRisRotating;
+  if (engineRunning) {
+    trackRattleVolume = constrain(trackLVol + trackRVol, 0, 100);
+  } else {
+    trackRattleVolume = 0;
+  }
+
+  // ── Dozer reverse detection (for travel alarm) ──
+  // Both tracks moving backward = reversing
+  boolean trackLreverse = (pulseWidth[CH_DZ_TRACK_L] < pulseMinNeutral[CH_DZ_TRACK_L]);
+  boolean trackRreverse = (pulseWidth[CH_DZ_TRACK_R] < pulseMinNeutral[CH_DZ_TRACK_R]);
+  escInReverse = trackLreverse && trackRreverse;
+  escIsDriving = tracksAreRotating;
+
+  // ── Blade / tilt / ripper → hydraulic pump volume ──
   uint16_t bladeVol = 0;
   if (pulseWidth[CH_DZ_BLADE] < pulseMinNeutral[CH_DZ_BLADE])
     bladeVol = map(pulseWidth[CH_DZ_BLADE], pulseMinNeutral[CH_DZ_BLADE], pulseMin[CH_DZ_BLADE], 0, 60);
   else if (pulseWidth[CH_DZ_BLADE] > pulseMaxNeutral[CH_DZ_BLADE])
     bladeVol = map(pulseWidth[CH_DZ_BLADE], pulseMaxNeutral[CH_DZ_BLADE], pulseMax[CH_DZ_BLADE], 0, 40);
 
-  // Blade tilt → pump volume
   uint16_t tiltVol = 0;
-  if (pulseWidth[CH_DZ_TILT] < pulseMinNeutral[CH_DZ_TILT])
-    tiltVol = map(pulseWidth[CH_DZ_TILT], pulseMinNeutral[CH_DZ_TILT], pulseMin[CH_DZ_TILT], 0, 30);
-  else if (pulseWidth[CH_DZ_TILT] > pulseMaxNeutral[CH_DZ_TILT])
-    tiltVol = map(pulseWidth[CH_DZ_TILT], pulseMaxNeutral[CH_DZ_TILT], pulseMax[CH_DZ_TILT], 0, 30);
+  if (CH_DZ_TILT > 0) {
+    if (pulseWidth[CH_DZ_TILT] < pulseMinNeutral[CH_DZ_TILT])
+      tiltVol = map(pulseWidth[CH_DZ_TILT], pulseMinNeutral[CH_DZ_TILT], pulseMin[CH_DZ_TILT], 0, 30);
+    else if (pulseWidth[CH_DZ_TILT] > pulseMaxNeutral[CH_DZ_TILT])
+      tiltVol = map(pulseWidth[CH_DZ_TILT], pulseMaxNeutral[CH_DZ_TILT], pulseMax[CH_DZ_TILT], 0, 30);
+  }
 
-  // Ripper → pump volume
   uint16_t ripperVol = 0;
   if (pulseWidth[CH_DZ_RIPPER] < pulseMinNeutral[CH_DZ_RIPPER])
     ripperVol = map(pulseWidth[CH_DZ_RIPPER], pulseMinNeutral[CH_DZ_RIPPER], pulseMin[CH_DZ_RIPPER], 0, 40);
@@ -1341,6 +1437,25 @@ void dozerControl() {
   hydraulicPumpVolume = constrain(bladeVol + tiltVol + ripperVol, 0, 100);
   hydraulicDependentKnockVolume = map(hydraulicPumpVolume, 0, 100, 50, 100);
   hydraulicLoad = map(hydraulicPumpVolume, 0, 100, 0, 40);
+
+  // Flow sound when blade is lowering
+  if (engineRunning && pulseWidth[CH_DZ_BLADE] > pulseMaxNeutral[CH_DZ_BLADE])
+    hydraulicFlowVolume = map(pulseWidth[CH_DZ_BLADE], pulseMaxNeutral[CH_DZ_BLADE], pulseMax[CH_DZ_BLADE] - 200, 0, 100);
+  else
+    hydraulicFlowVolume = 0;
+
+  // Periodic track chain clank (speed-dependent interval)
+  #ifdef TRACK_RATTLE_2
+  if (tracksAreRotating && engineRunning) {
+    static uint32_t lastTrackRattle2Time = millis();
+    uint32_t trkSpd = constrain(trackRattleVolume, (uint16_t)0, (uint16_t)100);
+    uint32_t interval = map(trkSpd, 0, 100, trackRattleIntervalMax, trackRattleIntervalMin);
+    if (millis() - lastTrackRattle2Time > interval) {
+      trackRattle2Trigger = true;
+      lastTrackRattle2Time = millis();
+    }
+  }
+  #endif
 }
 #endif
 
@@ -1755,6 +1870,12 @@ void setup() {
   // DAC — init both channels with zero output
   dacWrite(DAC1_PIN, 0); // GPIO 25
   dacWrite(DAC2_PIN, 0); // GPIO 26
+
+  // Lights GPIO
+  pinMode(HEADLIGHT_PIN, OUTPUT);
+  pinMode(WORKLIGHT_PIN, OUTPUT);
+  digitalWrite(HEADLIGHT_PIN, LOW);
+  digitalWrite(WORKLIGHT_PIN, LOW);
 
   // Servo CH3 & CH4 via LEDC
   ledcSetup(0, 50, 13);           // 50Hz servo, 13-bit

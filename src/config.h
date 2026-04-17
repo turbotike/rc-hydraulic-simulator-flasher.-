@@ -19,7 +19,7 @@
 // ============================================================================
 uint8_t CH_THROTTLE      = 5;   // Throttle stick (fwd/rev or fwd-only depending on mode)
 uint8_t CH_HORN          = 8;   // Horn trigger (>1800µs = ON)
-uint8_t CH_ENGINE_TOGGLE = 0;   // Engine on/off toggle (rising edge >1700µs)
+uint8_t CH_ENGINE_TOGGLE = 9;   // Engine on/off toggle (rising edge >1700µs)
 uint8_t CH_HILO_TOGGLE   = 7;   // Hi/Lo range toggle (rising edge >1700µs)
 
 // --- Excavator channels ---
@@ -149,6 +149,10 @@ uint32_t sbusBaud = 100000;     // Standard 100000. Some receivers need 163863
 // Battery voltage sense
 #define BATTERY_DETECT_PIN  39  // Voltage divider on VN
 
+// Lights output
+#define HEADLIGHT_PIN        3  // Front headlights (GPIO 3)
+#define WORKLIGHT_PIN       22  // Work lights / cab lights (GPIO 22, free when not using PWM RC)
+
 // Status LED (active low on some boards)
 #define STATUS_LED_PIN       0
 
@@ -158,7 +162,7 @@ uint32_t sbusBaud = 100000;     // Standard 100000. Some receivers need 163863
 
 // --- Start sound ---
 volatile int startVolumePercentage = 140;
-#include "sounds/startup.h"
+#include "sounds/startup3.h"
 // Alias: auto-generated variable mapping
 const signed char* startSamples = startup;
 const unsigned int startSampleCount = startup_sampleCount;
@@ -198,8 +202,8 @@ volatile int dieselKnockAdaptiveVolumePercentage = 50;
 #include "sounds/Caterpillar323Knock.h"
 
 // --- Turbo ---
-volatile int turboVolumePercentage = 35;
-volatile int turboIdleVolumePercentage = 20;
+volatile int turboVolumePercentage = 90;
+volatile int turboIdleVolumePercentage = 30;
 #include "sounds/TurboWhistle.h"
 
 // --- Supercharger (set to 0 to disable) ---
@@ -242,8 +246,8 @@ volatile int sound1VolumePercentage = 100;
 #include "sounds/door.h"
 
 // --- Travel Alarm (Reversing beep) ---
-volatile int reversingVolumePercentage = 70;
-const boolean travelAlarmBothDirections = false; // true = beep in fwd + rev
+volatile int reversingVolumePercentage = 205;
+const boolean travelAlarmBothDirections = true; // true = beep in fwd + rev
 #include "sounds/TruckReversingBeep.h"
 
 // --- Indicator tick ---
@@ -269,11 +273,11 @@ volatile int hydraulicPumpVolumePercentage = 120;
 #include "sounds/Caterpillar323Hydraulic2.h"
 
 // --- Hydraulic fluid flow ---
-volatile int hydraulicFlowVolumePercentage = 120;
+volatile int hydraulicFlowVolumePercentage = 0;
 #include "sounds/Caterpillar323HydraulicFlow.h"
 
 // --- Track rattle ---
-volatile int trackRattleVolumePercentage = 150;
+volatile int trackRattleVolumePercentage = 175;
 #include "sounds/tracrattle.h"
 // Alias: auto-generated variable mapping
 const signed char* trackRattleSamples = tracrattle;
@@ -281,15 +285,15 @@ const unsigned int trackRattleSampleCount = tracrattle_sampleCount;
 const unsigned int trackRattleSampleRate = tracrattle_sampleRate;
 
 // --- Track rattle 2 (periodic clank, for tracked machines) ---
-// #define TRACK_RATTLE_2
+#define TRACK_RATTLE_2
 #if defined TRACK_RATTLE_2
 volatile int trackRattle2VolumePercentage = 150;
 // These control the periodic chain-link clank interval
 uint16_t pwmStrokeChainDriveTopSpeed = 255;
 uint16_t pwmStrokeChainDriveStartRotation = 70;
 uint16_t trackRattleIntervalMin = 90;   // ms at max speed
-uint16_t trackRattleIntervalMax = 500;  // ms at min speed
-// #include "sounds/CaterpillarD6TrackRattle2.h"  // uncomment if you have this sound
+uint16_t trackRattleIntervalMax = 305;  // ms at min speed
+#include "sounds/D6TrackRattle.h"
 #endif
 
 // --- Bucket rattle ---
@@ -308,7 +312,7 @@ const uint16_t pulseSpan = 400;    // 1500 +/- this = full range (theory = 500)
 uint32_t MAX_RPM_PERCENTAGE = 200;  // Max RPM as % of idle (200 = big diesel, 400 = gas)
 int8_t acc = 2;                     // Acceleration step (1=slow loco, 9=fast trophy truck)
 int8_t dec = 1;                     // Deceleration step
-boolean autoEngineStart = false;    // true = engine starts on throttle, false = use CH_ENGINE_TOGGLE
+boolean autoEngineStart = false;     // true = engine auto-starts on stick input, false = use CH_ENGINE_TOGGLE
 uint16_t clutchEngagingPoint = 500; // Engine RPM couples to ESC above this
 
 // ============================================================================
@@ -317,7 +321,7 @@ uint16_t clutchEngagingPoint = 500; // Engine RPM couples to ESC above this
 uint8_t escRampTimeLow = 20;        // ESC ramp rate in low range (ms per step)
 uint8_t escRampTimeHigh = 50;       // ESC ramp rate in high range (ms per step)
 uint8_t escBrakeSteps = 30;
-uint8_t escAccelerationSteps = 3;
+uint8_t escAccelerationSteps = 6;
 
 // ============================================================================
 // TRANSMISSION
@@ -327,8 +331,8 @@ const boolean automatic = false;
 const boolean doubleClutch = false;
 const boolean shiftingAutoThrottle = true;
 
-// Hi/Lo 2-speed range (rabbit mode) — CH6 toggles, or set hiLoDefaultHigh
-const boolean hiLoEnabled = true;       // Enable 2-speed Hi/Lo
+// Hi/Lo 2-speed range (rabbit mode) — CH7 toggles, or set hiLoDefaultHigh
+#define HILO_ENABLED                    // Comment out to disable hi/lo
 const uint8_t hiLoRatioPercent = 60;    // Low range = this % of full speed
 const boolean hiLoDefaultHigh = false;  // Start in high range?
 
@@ -351,10 +355,10 @@ volatile int masterVolume = 260;  // 0-200%
 // ============================================================================
 // DEBUG
 // ============================================================================
-// #define DEBUG_RC       // Print RC channel values
-// #define DEBUG_ESC      // Print ESC state machine
-// #define DEBUG_SOUND    // Print sound engine stats
-// #define DEBUG_HYDRAULIC // Print hydraulic volumes
+#define DEBUG_RC       // Print RC channel values
+#define DEBUG_ESC      // Print ESC state machine
+#define DEBUG_SOUND    // Print sound engine stats
+#define DEBUG_HYDRAULIC // Print hydraulic volumes
 
 // ============================================================================
 // RUNTIME SOUND INDIRECTION
