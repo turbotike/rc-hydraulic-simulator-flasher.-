@@ -1,0 +1,1871 @@
+/*
+ * HydraulicController.ino
+ * RC Construction Machine — Engine Sound & Hydraulic Simulator
+ *
+ * Based on TheDIYGuy999's Rc_Engine_Sound_ESP32 v9.15.0
+ * Stripped to essentials: engine sound + hydraulic simulation + RC + ESC + servos
+ *
+ * ESP32 CPU must be 240 MHz!
+ *
+ * Audio: two 8-bit DAC channels driven by hardware timer ISRs
+ *   DAC1 (GPIO 25): Engine idle/rev crossfade + turbo + fan + hydraulic pump (variable rate = RPM)
+ *   DAC2 (GPIO 26): Diesel knock + horn + siren + air brake + hydraulic flow + track rattle + bucket (fixed ~22kHz)
+ *
+ * RC: SBUS / IBUS / SUMD / PPM / PWM on GPIO 36
+ * ESC: MCPWM on GPIO 33
+ * Servos: MCPWM on GPIO 13, 12, 14, 27
+ */
+
+#include <Arduino.h>
+#include <Preferences.h>
+#include "config.h"
+#include "soundpack.h"
+
+// ── Libraries ──────────────────────────────────────────────────
+#if defined SBUS_COMMUNICATION && !defined EMBEDDED_SBUS
+#include <SBUS.h>
+#endif
+#include <rcTrigger.h>
+#include <IBusBM.h>
+#include <ESP32AnalogRead.h>
+
+// ── Included headers ───────────────────────────────────────────
+#include "lib/curves.h"
+#include "lib/helper.h"
+#include "lib/SUMD.h"
+#if defined EMBEDDED_SBUS
+#include "lib/sbus.h"
+#endif
+
+// ── ESP-IDF drivers ────────────────────────────────────────────
+#include "driver/uart.h"
+#include "driver/rmt.h"
+#include "driver/mcpwm.h"
+#include "soc/rtc_wdt.h"
+#include <Esp.h>
+
+// ── Forward declarations ───────────────────────────────────────
+void Task1code(void *parameters);
+void readSbusCommands();
+void readIbusCommands();
+void readSumdCommands();
+void readPpmCommands();
+void readPwmSignals();
+void processRawChannels();
+void failsafeRcSignals();
+
+// ════════════════════════════════════════════════════════════════
+// PIN & GLOBAL STATE
+// ════════════════════════════════════════════════════════════════
+
+// PWM RC input
+#define PWM_CHANNELS_NUM 6
+const uint8_t PWM_CHANNELS[PWM_CHANNELS_NUM] = {1, 2, 3, 4, 5, 6};
+const uint8_t PWM_PINS[PWM_CHANNELS_NUM] = {PWM_CH1_PIN, PWM_CH2_PIN, PWM_CH3_PIN, PWM_CH4_PIN, PWM_CH5_PIN, PWM_CH6_PIN};
+
+// RC trigger objects
+rcTrigger functionR100u(200);
+rcTrigger functionR100d(100);
+rcTrigger functionR75u(300);
+rcTrigger functionR75d(300);
+rcTrigger functionL100l(100);
+rcTrigger functionL100r(100);
+
+// Battery
+ESP32AnalogRead battery;
+
+// PWM RMT
+#define RMT_TICK_PER_US 1
+#define RMT_RX_CLK_DIV (80000000 / RMT_TICK_PER_US / 1000000)
+#define RMT_RX_MAX_US 3500
+volatile uint16_t pwmBuf[PWM_CHANNELS_NUM + 2] = {0};
+uint32_t maxPwmRpmPercentage = 390;
+
+// PPM
+#define NUM_OF_PPM_CHL 8
+#define NUM_OF_PPM_AVG 1
+volatile int ppmInp[NUM_OF_PPM_CHL + 1] = {0};
+volatile int ppmBuf[16] = {0};
+volatile byte counter = NUM_OF_PPM_CHL;
+volatile byte average = NUM_OF_PPM_AVG;
+volatile boolean ready = false;
+volatile unsigned long timelast;
+unsigned long timelastloop;
+uint32_t maxPpmRpmPercentage = 390;
+
+// SBUS
+#if defined SBUS_COMMUNICATION
+  #if not defined EMBEDDED_SBUS
+  SBUS sBus(Serial2);
+  uint16_t SBUSchannels[16];
+  bool SBUSfailSafe;
+  bool SBUSlostFrame;
+  #else
+  bfs::SbusRx sBus(&Serial2);
+  std::array<int16_t, bfs::SbusRx::NUM_CH()> SBUSchannels;
+  #endif
+  bool sbusInit;
+#endif
+uint32_t maxSbusRpmPercentage = 390;
+
+// SUMD
+HardwareSerial serial(2);
+SUMD sumd(serial);
+uint16_t SUMDchannels[16];
+bool SUMD_failsafe;
+bool SUMD_frame_lost;
+bool SUMD_init;
+uint32_t maxSumdRpmPercentage = 390;
+
+// IBUS
+IBusBM iBus;
+bool ibusInit;
+uint32_t maxIbusRpmPercentage = 320;
+
+// RC channels
+#define PULSE_ARRAY_SIZE 17
+uint16_t pulseWidthRaw[PULSE_ARRAY_SIZE];
+uint16_t pulseWidthRaw2[PULSE_ARRAY_SIZE];
+uint16_t pulseWidthRaw3[PULSE_ARRAY_SIZE];
+uint16_t pulseWidth[PULSE_ARRAY_SIZE];
+int16_t pulseOffset[PULSE_ARRAY_SIZE];
+uint16_t pulseMaxNeutral[PULSE_ARRAY_SIZE];
+uint16_t pulseMinNeutral[PULSE_ARRAY_SIZE];
+uint16_t pulseMax[PULSE_ARRAY_SIZE];
+uint16_t pulseMin[PULSE_ARRAY_SIZE];
+uint16_t pulseMaxLimit[PULSE_ARRAY_SIZE];
+uint16_t pulseMinLimit[PULSE_ARRAY_SIZE];
+uint16_t pulseZero[PULSE_ARRAY_SIZE];
+uint16_t pulseLimit = 1100;
+uint16_t pulseMinValid = 700;
+uint16_t pulseMaxValid = 2300;
+bool autoZeroDone;
+#define NONE 0
+
+volatile boolean failSafe = false;
+
+// Control flags
+boolean mode1;
+boolean mode2;
+boolean momentary1;
+boolean hazard;
+boolean left;
+boolean right;
+
+// Sound state
+volatile boolean engineOn = false;
+volatile boolean engineStart = false;
+volatile boolean engineRunning = false;
+volatile boolean tracksAreRotating = false;
+volatile boolean engineStop = false;
+volatile boolean jakeBrakeRequest = false;
+volatile boolean engineJakeBraking = false;
+volatile boolean wastegateTrigger = false;
+volatile boolean blowoffTrigger = false;
+volatile boolean dieselKnockTrigger = false;
+volatile boolean trackRattle2Trigger = false;
+volatile boolean dieselKnockTriggerFirst = false;
+volatile boolean airBrakeTrigger = false;
+volatile boolean shiftingTrigger = false;
+volatile boolean hornTrigger = false;
+volatile boolean sirenTrigger = false;
+volatile boolean sound1trigger = false;
+volatile boolean couplingTrigger = false;
+volatile boolean uncouplingTrigger = false;
+volatile boolean bucketRattleTrigger = false;
+volatile boolean indicatorSoundOn = false;
+volatile boolean outOfFuelMessageTrigger = false;
+
+// Lights state machine
+int8_t lightsState = 0;        // 0=off, 1=parking, 2=low beam, 3=high beam, 4=work lights, 5=all
+volatile boolean lightsOn = false;
+
+volatile boolean hornLatch = false;
+volatile boolean sirenLatch = false;
+
+// Sound volumes
+volatile uint16_t throttleDependentVolume = 0;
+volatile uint16_t throttleDependentRevVolume = 0;
+volatile uint16_t rpmDependentJakeBrakeVolume = 0;
+volatile uint16_t throttleDependentKnockVolume = 0;
+volatile uint16_t rpmDependentKnockVolume = 0;
+volatile uint16_t throttleDependentTurboVolume = 0;
+volatile uint16_t throttleDependentFanVolume = 0;
+volatile uint16_t throttleDependentChargerVolume = 0;
+volatile uint16_t rpmDependentWastegateVolume = 0;
+volatile uint16_t tireSquealVolume = 0;
+
+// Hydraulic volumes
+volatile uint16_t hydraulicPumpVolume = 0;
+volatile uint16_t hydraulicPumpVolumeArray[17];
+volatile uint16_t hydraulicFlowVolume = 0;
+volatile uint16_t trackRattleVolume = 0;
+volatile uint16_t trackRattle2Volume = 0;
+volatile uint32_t trackRattle2TriggerInterval = 0;
+volatile uint16_t hydraulicDependentKnockVolume = 100;
+volatile uint16_t hydraulicLoad = 0;
+
+volatile uint8_t dacOffset = 0;
+
+// Throttle
+int16_t currentThrottle = 0;
+int16_t currentThrottleHydraulic = 0;
+int16_t currentThrottleFaded = 0;
+
+// Engine
+const int16_t maxRpm = 500;
+const int16_t minRpm = 0;
+int32_t currentRpm = 0;
+int32_t targetHydraulicRpm[17];
+volatile uint8_t engineState = 0;
+enum EngineState { OFF, STARTING, RUNNING, STOPPING };
+int16_t engineLoad = 0;
+volatile uint16_t engineSampleRate = 0;
+int32_t speedLimit = maxRpm;
+
+// Clutch
+boolean clutchDisengaged = true;
+
+// Transmission
+uint8_t selectedGear = 1;
+uint8_t selectedAutomaticGear = 1;
+boolean gearUpShiftingInProgress;
+boolean doubleClutchInProgress;
+boolean gearDownShiftingInProgress;
+boolean gearUpShiftingPulse;
+boolean gearDownShiftingPulse;
+volatile boolean neutralGear = false;
+
+// ESC
+volatile boolean escIsBraking = false;
+volatile boolean escIsDriving = false;
+volatile boolean escInReverse = false;
+volatile boolean brakeDetect = false;
+int8_t driveState = 0;
+uint16_t escPulseMax = 2000;
+uint16_t escPulseMin = 1000;
+uint16_t escPulseMaxNeutral = 1500;
+uint16_t escPulseMinNeutral = 1500;
+uint16_t currentSpeed = 0;
+volatile bool crawlerMode = false;
+
+// Battery
+float batteryCutoffvoltage;
+float batteryVoltage;
+uint8_t numberOfCells;
+bool batteryProtection = false;
+
+// FreeRTOS
+TaskHandle_t Task1;
+
+// Timers
+uint32_t maxSampleInterval = 4000000 / sampleRate;
+uint32_t minSampleInterval = 4000000 / sampleRate * 100 / MAX_RPM_PERCENTAGE;
+
+hw_timer_t *variableTimer = NULL;
+portMUX_TYPE variableTimerMux = portMUX_INITIALIZER_UNLOCKED;
+volatile uint32_t variableTimerTicks = 4000000 / sampleRate;
+
+hw_timer_t *fixedTimer = NULL;
+portMUX_TYPE fixedTimerMux = portMUX_INITIALIZER_UNLOCKED;
+volatile uint32_t fixedTimerTicks = 4000000 / sampleRate;
+
+SemaphoreHandle_t xPwmSemaphore;
+SemaphoreHandle_t xRpmSemaphore;
+
+uint16_t loopTime;
+
+// ════════════════════════════════════════════════════════════════
+// VARIABLE-RATE PLAYBACK ISR (Engine sounds → DAC1)
+// ════════════════════════════════════════════════════════════════
+
+void IRAM_ATTR variablePlaybackTimer() {
+
+  static uint32_t attenuatorMillis = 0;
+  static uint32_t curEngineSample = 0;
+  static uint32_t curRevSample = 0;
+  static uint32_t curTurboSample = 0;
+  static uint32_t curFanSample = 0;
+  static uint32_t curChargerSample = 0;
+  static uint32_t curStartSample = 0;
+  static uint32_t curJakeBrakeSample = 0;
+  static uint32_t curHydraulicPumpSample = 0;
+  static uint32_t curTrackRattleSample = 0;
+  static uint32_t lastDieselKnockSample = 0;
+  static uint16_t attenuator = 0;
+  static uint16_t speedPercentage = 0;
+  static int32_t a, a1, a2, a3, b, c, d, e = 0;
+  static int32_t f = 0; // hydraulic pump
+  static int32_t g = 0; // track rattle (steam loco — unused here but kept for compat)
+  uint8_t a1Multi = 0;
+
+  switch (engineState) {
+
+  case OFF:
+    variableTimerTicks = 4000000 / startSampleRate;
+    timerAlarmWrite(variableTimer, variableTimerTicks, true);
+    a = 0;
+    if (engineOn) {
+      engineState = STARTING;
+      engineStart = true;
+    }
+    break;
+
+  case STARTING:
+    variableTimerTicks = 4000000 / startSampleRate;
+    timerAlarmWrite(variableTimer, variableTimerTicks, true);
+
+    if (curStartSample < startSampleCount - 1) {
+      a = (startSamples[curStartSample] * startVolumePercentage / 100);
+      curStartSample++;
+    } else {
+      curStartSample = 0;
+      engineState = RUNNING;
+      engineStart = false;
+      engineRunning = true;
+      airBrakeTrigger = true;
+    }
+    break;
+
+  case RUNNING:
+    // Variable sample rate (calculated in engineMassSimulation)
+    variableTimerTicks = engineSampleRate;
+    timerAlarmWrite(variableTimer, variableTimerTicks, true);
+
+    // Idle sound
+    if (curEngineSample < sampleCount - 1) {
+      a1 = (samples[curEngineSample] * throttleDependentVolume / 100 * idleVolumePercentage / 100);
+      curEngineSample++;
+
+      // Knock trigger
+      if (curEngineSample - lastDieselKnockSample > (sampleCount / dieselKnockInterval)) {
+        dieselKnockTrigger = true;
+        lastDieselKnockSample = curEngineSample;
+      }
+    } else {
+      curEngineSample = 0;
+      lastDieselKnockSample = 0;
+      dieselKnockTriggerFirst = true;
+    }
+#ifdef REV_SOUND
+    // Rev sound
+    if (curRevSample < revSampleCount - 1) {
+      a2 = (revSamples[curRevSample] * throttleDependentRevVolume / 100 * revVolumePercentage / 100);
+      curRevSample++;
+    } else {
+      curRevSample = 0;
+    }
+
+    // Crossfade: idle ↔ rev based on RPM
+    if (currentRpm > revSwitchPoint)
+      a1Multi = map(currentRpm, idleEndPoint, revSwitchPoint, 0, idleVolumeProportionPercentage);
+    else
+      a1Multi = idleVolumeProportionPercentage;
+    if (currentRpm > idleEndPoint)
+      a1Multi = 0;
+
+    a1 = a1 * a1Multi / 100;
+    a2 = a2 * (100 - a1Multi) / 100;
+    a = a1 + a2;
+#else
+    a = a1;
+#endif
+
+    // Throttle-dependent volume
+    a = a * fullThrottleVolumePercentage / 100;
+
+    // Turbo sound
+    if (curTurboSample < turboSampleCount - 1) {
+      b = (turboSamples[curTurboSample] * throttleDependentTurboVolume / 100 * turboVolumePercentage / 100);
+      curTurboSample++;
+    } else {
+      curTurboSample = 0;
+    }
+
+    // Fan sound
+    if (curFanSample < fanSampleCount - 1) {
+      d = (fanSamples[curFanSample] * throttleDependentFanVolume / 100 * fanVolumePercentage / 100);
+      curFanSample++;
+    } else {
+      curFanSample = 0;
+    }
+
+    // Supercharger
+    if (curChargerSample < chargerSampleCount - 1) {
+      e = (chargerSamples[curChargerSample] * throttleDependentChargerVolume / 100 * chargerVolumePercentage / 100);
+      curChargerSample++;
+    } else {
+      curChargerSample = 0;
+    }
+
+    // Hydraulic pump sound
+#if defined EXCAVATOR_MODE || defined CRANE_MODE || defined DOZER_MODE || defined GRADER_MODE
+    if (curHydraulicPumpSample < hydraulicPumpSampleCount - 1) {
+      f = (hydraulicPumpSamples[curHydraulicPumpSample] * hydraulicPumpVolumePercentage / 100 * hydraulicPumpVolume / 100);
+      curHydraulicPumpSample++;
+    } else {
+      curHydraulicPumpSample = 0;
+    }
+#endif
+
+    if (!engineOn) {
+      speedPercentage = 100;
+      attenuator = 1;
+      engineState = STOPPING;
+      engineStop = true;
+      engineRunning = false;
+    }
+    break;
+
+  case STOPPING:
+    variableTimerTicks = 4000000 / sampleRate * speedPercentage / 100;
+    timerAlarmWrite(variableTimer, variableTimerTicks, true);
+
+    if (curEngineSample < sampleCount - 1) {
+      a = (samples[curEngineSample] * throttleDependentVolume / 100 * idleVolumePercentage / 100 / attenuator);
+      curEngineSample++;
+    } else {
+      curEngineSample = 0;
+    }
+
+    if (millis() - attenuatorMillis > 100) {
+      attenuatorMillis = millis();
+      attenuator++;
+      speedPercentage += 20;
+    }
+
+    if (attenuator >= 50 || speedPercentage >= 500) {
+      a = 0;
+      speedPercentage = 100;
+      engineState = OFF;
+      engineStop = false;
+    }
+    break;
+  }
+
+  // Mix & output to DAC1
+  uint8_t value = constrain(((a * 8 / 10) + (b / 2) + (c / 5) + (d / 5) + (e / 5) + f + g) * masterVolume / 100 + dacOffset, 0, 255);
+  SET_PERI_REG_BITS(RTC_IO_PAD_DAC1_REG, RTC_IO_PDAC1_DAC, value, RTC_IO_PDAC1_DAC_S);
+}
+
+// ════════════════════════════════════════════════════════════════
+// FIXED-RATE PLAYBACK ISR (Aux sounds → DAC2)
+// ════════════════════════════════════════════════════════════════
+
+void IRAM_ATTR fixedPlaybackTimer() {
+
+  static uint32_t curHornSample = 0;
+  static uint32_t curSirenSample = 0;
+  static uint32_t curSound1Sample = 0;
+  static uint32_t curReversingSample = 0;
+  static uint32_t curIndicatorSample = 0;
+  static uint32_t curWastegateSample = 0;
+  static uint32_t curBrakeSample = 0;
+  static uint32_t curShiftingSample = 0;
+  static uint32_t curDieselKnockSample = 0;
+  static uint32_t curCouplingSample = 0;
+  static uint32_t curUncouplingSample = 0;
+  static uint32_t curHydraulicFlowSample = 0;
+  static uint32_t curTrackRattleSample = 0;
+  static uint32_t curTrackRattle2Sample = 0;
+  static uint32_t curBucketRattleSample = 0;
+  static int32_t a, a1, a2 = 0;
+  static int32_t b, b0, b1, b2, b3, b4, b5, b6, b7, b8, b9 = 0;
+  static int32_t c, c1, c2, c3, c4 = 0;
+  static int32_t d, d1, d2 = 0;
+  static boolean knockSilent = 0;
+  static boolean knockMedium = 0;
+  static uint8_t curKnockCylinder = 0;
+
+  // Horn
+  if (hornTrigger || hornLatch) {
+    if (curHornSample < hornSampleCount - 1) {
+      a1 = (hornSamples[curHornSample] * hornVolumePercentage / 100);
+      curHornSample++;
+    } else {
+      curHornSample = 0;
+    }
+    hornLatch = true;
+  } else {
+    a1 = 0;
+    curHornSample = 0;
+  }
+
+  // Siren
+  if (sirenTrigger || sirenLatch) {
+    if (curSirenSample < sirenSampleCount - 1) {
+      a2 = (sirenSamples[curSirenSample] * sirenVolumePercentage / 100);
+      curSirenSample++;
+    } else {
+      curSirenSample = 0;
+    }
+    sirenLatch = true;
+  } else {
+    a2 = 0;
+    curSirenSample = 0;
+  }
+
+  // Sound1
+  if (sound1trigger) {
+    if (curSound1Sample < sound1SampleCount - 1) {
+      b0 = (sound1Samples[curSound1Sample] * sound1VolumePercentage / 100);
+      curSound1Sample++;
+    } else {
+      sound1trigger = false;
+    }
+  } else {
+    b0 = 0;
+    curSound1Sample = 0;
+  }
+
+  // Reversing beep
+  if (engineRunning && escInReverse) {
+    if (curReversingSample < reversingSampleCount - 1) {
+      b1 = (reversingSamples[curReversingSample] * reversingVolumePercentage / 100);
+      curReversingSample++;
+    } else {
+      curReversingSample = 0;
+    }
+  } else {
+    b1 = 0;
+  }
+
+  // Indicator tick
+  if (indicatorSoundOn) {
+    if (curIndicatorSample < indicatorSampleCount - 1) {
+      b2 = (indicatorSamples[curIndicatorSample] * indicatorVolumePercentage / 100);
+      curIndicatorSample++;
+    } else {
+      indicatorSoundOn = false;
+    }
+  } else {
+    b2 = 0;
+    curIndicatorSample = 0;
+  }
+
+  // Wastegate
+  if (wastegateTrigger) {
+    if (curWastegateSample < wastegateSampleCount - 1) {
+      b3 = (wastegateSamples[curWastegateSample] * rpmDependentWastegateVolume / 100 * wastegateVolumePercentage / 100);
+      curWastegateSample++;
+    } else {
+      wastegateTrigger = false;
+    }
+  } else {
+    b3 = 0;
+    curWastegateSample = 0;
+  }
+
+  // Air brake
+  if (airBrakeTrigger) {
+    if (curBrakeSample < brakeSampleCount - 1) {
+      b4 = (brakeSamples[curBrakeSample] * brakeVolumePercentage / 100);
+      curBrakeSample++;
+    } else {
+      airBrakeTrigger = false;
+    }
+  } else {
+    b4 = 0;
+    curBrakeSample = 0;
+  }
+
+  // Shifting
+  if (shiftingTrigger && engineRunning && !automatic && !doubleClutch) {
+    if (curShiftingSample < shiftingSampleCount - 1) {
+      b6 = (shiftingSamples[curShiftingSample] * shiftingVolumePercentage / 100);
+      curShiftingSample++;
+    } else {
+      shiftingTrigger = false;
+    }
+  } else {
+    b6 = 0;
+    curShiftingSample = 0;
+  }
+
+  // Diesel knock
+  if (dieselKnockTriggerFirst) {
+    dieselKnockTriggerFirst = false;
+    curKnockCylinder = 0;
+  }
+
+  if (dieselKnockTrigger) {
+    dieselKnockTrigger = false;
+    curKnockCylinder++;
+    curDieselKnockSample = 0;
+  }
+
+  if (curDieselKnockSample < knockSampleCount) {
+    // Knock volume depends on hydraulic load in construction modes
+    b7 = (knockSamples[curDieselKnockSample] * dieselKnockVolumePercentage / 100 * throttleDependentKnockVolume / 100 * hydraulicDependentKnockVolume / 100);
+    curDieselKnockSample++;
+    if (knockSilent && !knockMedium) b7 = b7 * dieselKnockAdaptiveVolumePercentage / 100;
+    if (knockMedium) b7 = b7 * dieselKnockAdaptiveVolumePercentage / 75;
+  }
+
+  // ── Hydraulic sounds (Group C) ────────────────────────────
+
+  // Hydraulic fluid flow
+  if (engineRunning && curHydraulicFlowSample < hydraulicFlowSampleCount - 1) {
+    c1 = (hydraulicFlowSamples[curHydraulicFlowSample] * hydraulicFlowVolumePercentage / 100 * hydraulicFlowVolume / 100);
+    curHydraulicFlowSample++;
+  } else {
+    curHydraulicFlowSample = 0;
+  }
+
+  // Track rattle (continuous)
+  if (tracksAreRotating && curTrackRattleSample < trackRattleSampleCount - 1) {
+    c2 = (trackRattleSamples[curTrackRattleSample] * trackRattleVolumePercentage / 100 * trackRattleVolume / 100);
+    curTrackRattleSample++;
+  } else {
+    curTrackRattleSample = 0;
+  }
+
+#ifdef TRACK_RATTLE_2
+  // Track rattle 2 (periodic clank)
+  if (trackRattle2Trigger) {
+    if (curTrackRattle2Sample < trackRattle2SampleCount - 1) {
+      c4 = (trackRattle2Samples[curTrackRattle2Sample] * trackRattle2VolumePercentage / 100 * trackRattleVolume / 100);
+      curTrackRattle2Sample++;
+    } else {
+      trackRattle2Trigger = false;
+      curTrackRattle2Sample = 0;
+    }
+  }
+#endif
+
+  // Bucket rattle
+  if (bucketRattleTrigger) {
+    if (curBucketRattleSample < bucketRattleSampleCount - 1) {
+      c3 = (bucketRattleSamples[curBucketRattleSample] * bucketRattleVolumePercentage / 100);
+      curBucketRattleSample++;
+    } else {
+      bucketRattleTrigger = false;
+    }
+  } else {
+    c3 = 0;
+    curBucketRattleSample = 0;
+  }
+
+  // Mix & output to DAC2
+  a = a1 + a2;
+  b = b0 * 5 + b1 + b2 / 2 + b3 + b4 + b5 + b6 + b7 + b8 + b9;
+  c = c1 + c2 + c3 + c4;
+  d = d1 + d2;
+
+  uint8_t value = constrain(((a * 8 / 10) + (b * 2 / 10) + c + d) * masterVolume / 100 + dacOffset, 0, 255);
+  SET_PERI_REG_BITS(RTC_IO_PAD_DAC2_REG, RTC_IO_PDAC2_DAC, value, RTC_IO_PDAC2_DAC_S);
+}
+
+// ════════════════════════════════════════════════════════════════
+// PWM RC SIGNAL READ (RMT interrupt)
+// ════════════════════════════════════════════════════════════════
+
+static void IRAM_ATTR rmt_isr_handler(void *arg) {
+  uint32_t intr_st = RMT.int_st.val;
+  static uint32_t lastFrameTime = millis();
+
+  if (millis() - lastFrameTime > 20) {
+    if (xSemaphoreTake(xPwmSemaphore, portMAX_DELAY)) {
+      for (uint8_t i = 0; i < PWM_CHANNELS_NUM; i++) {
+        uint8_t channel = PWM_CHANNELS[i];
+        uint32_t channel_mask = BIT(channel * 3 + 1);
+        if (!(intr_st & channel_mask)) continue;
+
+        RMT.conf_ch[channel].conf1.rx_en = 0;
+        RMT.conf_ch[channel].conf1.mem_owner = RMT_MEM_OWNER_TX;
+        volatile rmt_item32_t *item = RMTMEM.chan[channel].data32;
+        if (item) {
+          pwmBuf[i + 1] = item->duration0;
+        }
+        RMT.conf_ch[channel].conf1.mem_wr_rst = 1;
+        RMT.conf_ch[channel].conf1.mem_owner = RMT_MEM_OWNER_RX;
+        RMT.conf_ch[channel].conf1.rx_en = 1;
+        RMT.int_clr.val = channel_mask;
+      }
+      lastFrameTime = millis();
+      xSemaphoreGive(xPwmSemaphore);
+    } else {
+      xSemaphoreGive(xPwmSemaphore);
+    }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// PPM READ (GPIO interrupt)
+// ════════════════════════════════════════════════════════════════
+
+void IRAM_ATTR readPpm() {
+  unsigned long timenow = micros();
+  unsigned long timeDiff = timenow - timelast;
+  timelast = timenow;
+
+  if (timeDiff > 4000) {
+    counter = 0;
+  } else if (counter < NUM_OF_PPM_CHL) {
+    ppmBuf[counter] = timeDiff;
+    counter++;
+    if (counter == NUM_OF_PPM_CHL) {
+      for (int i = 0; i < NUM_OF_PPM_CHL; i++) {
+        ppmInp[i + 1] = ppmBuf[i];
+      }
+      ready = true;
+    }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// RC COMMAND READERS
+// ════════════════════════════════════════════════════════════════
+
+void readPwmSignals() {
+#if defined PWM_COMMUNICATION
+  if (xSemaphoreTake(xPwmSemaphore, portMAX_DELAY)) {
+    for (int i = 0; i < PWM_CHANNELS_NUM; i++) {
+      pulseWidthRaw[i + 1] = pwmBuf[i + 1];
+    }
+    xSemaphoreGive(xPwmSemaphore);
+  }
+#endif
+}
+
+void readPpmCommands() {
+#if defined PPM_COMMUNICATION
+  if (ready) {
+    ready = false;
+    for (int i = 0; i < NUM_OF_PPM_CHL; i++) {
+      pulseWidthRaw[i + 1] = ppmInp[i + 1];
+    }
+  }
+#endif
+}
+
+void readSbusCommands() {
+#if defined SBUS_COMMUNICATION
+  #if defined EMBEDDED_SBUS
+  if (sBus.read()) {
+    SBUSchannels = sBus.ch();
+    for (int i = 0; i < 16; i++) {
+      pulseWidthRaw[i + 1] = map(SBUSchannels[i], 172, 1811, 1000, 2000);
+    }
+    failSafe = sBus.failsafe();
+  }
+  #else
+  if (sBus.read(&SBUSchannels[0], &SBUSfailSafe, &SBUSlostFrame)) {
+    for (int i = 0; i < 16; i++) {
+      pulseWidthRaw[i + 1] = map(SBUSchannels[i], 172, 1811, 1000, 2000);
+    }
+    failSafe = SBUSfailSafe;
+  }
+  #endif
+#endif
+}
+
+void readIbusCommands() {
+#if defined IBUS_COMMUNICATION
+  for (int i = 0; i < 14; i++) {
+    uint16_t val = iBus.readChannel(i);
+    if (val > 0) pulseWidthRaw[i + 1] = val;
+  }
+#endif
+}
+
+void readSumdCommands() {
+#if defined SUMD_COMMUNICATION
+  if (sumd.read(SUMDchannels, &SUMD_failsafe, &SUMD_frame_lost)) {
+    for (int i = 0; i < 12; i++) {
+      pulseWidthRaw[i + 1] = SUMDchannels[i] / 8;
+    }
+    failSafe = SUMD_failsafe;
+  }
+#endif
+}
+
+// ════════════════════════════════════════════════════════════════
+// PROCESS RAW RC CHANNELS
+// ════════════════════════════════════════════════════════════════
+
+void processRawChannels() {
+  static unsigned long lastFrame = millis();
+  if (millis() - lastFrame < 20) return;
+  lastFrame = millis();
+
+  // Auto-zero calibration
+  if (!autoZeroDone) {
+    static uint8_t zeroCount = 0;
+    zeroCount++;
+    if (zeroCount > 10) {
+      for (int i = 1; i < PULSE_ARRAY_SIZE; i++) {
+        if (pulseWidthRaw[i] >= 1400 && pulseWidthRaw[i] <= 1600) {
+          pulseOffset[i] = 1500 - pulseWidthRaw[i];
+        }
+        pulseZero[i] = 1500;
+        pulseMaxNeutral[i] = pulseZero[i] + pulseNeutral;
+        pulseMinNeutral[i] = pulseZero[i] - pulseNeutral;
+        pulseMax[i] = pulseZero[i] + pulseSpan;
+        pulseMin[i] = pulseZero[i] - pulseSpan;
+        pulseMaxLimit[i] = pulseZero[i] + pulseLimit;
+        pulseMinLimit[i] = pulseZero[i] - pulseLimit;
+      }
+      autoZeroDone = true;
+    }
+  }
+
+  // Apply offset, constrain, reverse, average
+  for (int i = 1; i < PULSE_ARRAY_SIZE; i++) {
+    if (pulseWidthRaw[i] > pulseMinValid && pulseWidthRaw[i] < pulseMaxValid) {
+      pulseWidthRaw2[i] = pulseWidthRaw[i] + pulseOffset[i];
+      pulseWidthRaw2[i] = constrain(pulseWidthRaw2[i], pulseMinLimit[i], pulseMaxLimit[i]);
+    }
+    // Channel reverse
+    if (channelReversed[i]) {
+      pulseWidthRaw2[i] = map(pulseWidthRaw2[i], 1000, 2000, 2000, 1000);
+    }
+    // Channel disable — force neutral if not enabled
+    if (!channelEnabled[i]) {
+      pulseWidthRaw2[i] = 1500;
+    }
+    // Simple averaging
+    pulseWidthRaw3[i] = (pulseWidthRaw3[i] + pulseWidthRaw2[i]) / 2;
+    pulseWidth[i] = pulseWidthRaw3[i];
+  }
+}
+
+void failsafeRcSignals() {
+  if (failSafe) {
+    for (int i = 1; i < PULSE_ARRAY_SIZE; i++) {
+      pulseWidth[i] = 1500;
+    }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// THROTTLE MAPPING
+// ════════════════════════════════════════════════════════════════
+
+void mapThrottle() {
+  static unsigned long lastFrame = millis();
+  if (millis() - lastFrame < 4) return;
+  lastFrame = millis();
+
+  // ── Engine on/off control (unified for all modes) ──
+  if (autoEngineStart) {
+    // Auto-start: engine on when throttle moves, off after 3s idle
+    static unsigned long idleTimer = 0;
+    boolean stickMoved = abs((int)pulseWidth[CH_THROTTLE] - 1500) > 80;
+    if (stickMoved) idleTimer = millis();
+    if (!engineOn && stickMoved) engineOn = true;
+    if (engineOn && !stickMoved && millis() - idleTimer > 3000) engineOn = false;
+  } else {
+    // Manual toggle via CH_ENGINE_TOGGLE (rising edge >1700µs)
+    static boolean engineToggle = false;
+    if (pulseWidth[CH_ENGINE_TOGGLE] > 1700 && !engineToggle) {
+      engineOn = !engineOn;
+      engineToggle = true;
+    }
+    if (pulseWidth[CH_ENGINE_TOGGLE] < 1600) engineToggle = false;
+  }
+
+  // ── Throttle mapping (mode-specific) ──
+#if defined EXCAVATOR_MODE || defined DOZER_MODE || defined CRANE_MODE
+  // Forward-only throttle (hand throttle sets RPM)
+  if (pulseWidth[CH_THROTTLE] > pulseMaxNeutral[CH_THROTTLE]) {
+    currentThrottle = map(pulseWidth[CH_THROTTLE], pulseMaxNeutral[CH_THROTTLE], pulseMax[CH_THROTTLE], 0, 500);
+  } else {
+    currentThrottle = 0;
+  }
+  currentThrottle = constrain(currentThrottle, 0, 500);
+
+#elif defined LOADER_MODE || defined SKIDSTEER_MODE || defined GRADER_MODE
+  // Bidirectional throttle (stick controls speed + direction)
+  if (pulseWidth[CH_THROTTLE] > pulseMaxNeutral[CH_THROTTLE]) {
+    currentThrottle = map(pulseWidth[CH_THROTTLE], pulseMaxNeutral[CH_THROTTLE], pulseMax[CH_THROTTLE], 0, 500);
+  } else if (pulseWidth[CH_THROTTLE] < pulseMinNeutral[CH_THROTTLE]) {
+    currentThrottle = map(pulseWidth[CH_THROTTLE], pulseMinNeutral[CH_THROTTLE], pulseMin[CH_THROTTLE], 0, 500);
+  } else {
+    currentThrottle = 0;
+  }
+  currentThrottle = constrain(currentThrottle, 0, 500);
+#endif
+
+  // Throttle smoothing
+  static int16_t lastThrottle = 0;
+  if (currentThrottle > lastThrottle) lastThrottle += 3;
+  else if (currentThrottle < lastThrottle) lastThrottle -= 3;
+  currentThrottleFaded = constrain(lastThrottle, 0, 500);
+
+  // Volume calculations based on throttle
+  throttleDependentVolume = map(currentThrottleFaded, 0, 500, engineIdleVolumePercentage, fullThrottleVolumePercentage);
+  throttleDependentRevVolume = map(currentThrottleFaded, 0, 500, engineRevVolumePercentage, 100);
+  throttleDependentKnockVolume = map(currentThrottleFaded, 0, 500, dieselKnockIdleVolumePercentage, 100);
+  throttleDependentTurboVolume = map(currentThrottleFaded, 0, 500, turboIdleVolumePercentage, 100);
+  throttleDependentFanVolume = map(currentThrottleFaded, 0, 500, fanIdleVolumePercentage, 100);
+  throttleDependentChargerVolume = map(currentThrottleFaded, 0, 500, chargerIdleVolumePercentage, 100);
+  rpmDependentWastegateVolume = map(currentRpm, 0, 500, wastegateIdleVolumePercentage, 100);
+
+  // Horn trigger
+  hornTrigger = (pulseWidth[CH_HORN] > 1800);
+  if (!hornTrigger) hornLatch = false;
+
+  // Lights toggle (long press on CH_LIGHTS cycles through states 0-5)
+  static boolean lightsToggleLock = false;
+  if (pulseWidth[CH_LIGHTS] > 1700 && !lightsToggleLock) {
+    lightsToggleLock = true;
+    lightsState++;
+    if (lightsState > 5) lightsState = 0;
+    lightsOn = (lightsState > 0);
+  }
+  if (pulseWidth[CH_LIGHTS] < 1600) lightsToggleLock = false;
+}
+
+// ════════════════════════════════════════════════════════════════
+// ENGINE MASS SIMULATION
+// ════════════════════════════════════════════════════════════════
+
+void engineMassSimulation() {
+  static unsigned long lastFrame = millis();
+  if (millis() - lastFrame < 4) return;
+  lastFrame = millis();
+
+  int32_t targetRpm = 0;
+
+#if defined EXCAVATOR_MODE || defined DOZER_MODE
+  // Excavator/Dozer: throttle sets target RPM, hydraulic load drops it
+  targetRpm = currentThrottle - hydraulicLoad;
+  targetRpm = constrain(targetRpm, 0, 500);
+
+#elif defined LOADER_MODE || defined CRANE_MODE || defined SKIDSTEER_MODE || defined GRADER_MODE
+  // Loader/Crane/SkidSteer/Grader: RPM follows max of throttle or hydraulic demand
+  targetRpm = currentThrottle;
+  if (targetHydraulicRpm[0] > targetRpm) targetRpm = targetHydraulicRpm[0];
+  targetRpm = constrain(targetRpm, 0, 500);
+#endif
+
+  // Acceleration / deceleration with mass
+  if (engineRunning) {
+    if (currentRpm < targetRpm) {
+      currentRpm += acc;
+      if (currentRpm > targetRpm) currentRpm = targetRpm;
+    } else if (currentRpm > targetRpm) {
+      currentRpm -= dec;
+      if (currentRpm < targetRpm) currentRpm = targetRpm;
+    }
+  } else {
+    currentRpm = 0;
+  }
+
+  currentRpm = constrain(currentRpm, minRpm, maxRpm);
+
+  // Calculate sample rate from RPM
+  engineSampleRate = map(currentRpm, minRpm, maxRpm, maxSampleInterval, minSampleInterval);
+
+  // Wastegate trigger on rapid throttle drop
+  static int32_t lastRpm = 0;
+  if (lastRpm - currentRpm > 60 && currentRpm > 200) {
+    wastegateTrigger = true;
+  }
+  lastRpm = currentRpm;
+}
+
+// ════════════════════════════════════════════════════════════════
+// ESC OUTPUT (5-state machine)
+// ════════════════════════════════════════════════════════════════
+
+int8_t pulse() {
+  if (currentThrottle > 50) return 1;
+  if (currentThrottle < -50) return -1;
+  return 0;
+}
+
+// Hi/Lo range state (rabbit mode / 2-speed)
+boolean hiLoIsHigh = hiLoDefaultHigh;
+
+void esc() {
+  static unsigned long lastFrame = millis();
+  uint16_t escRampTime = hiLoIsHigh ? escRampTimeHigh : escRampTimeLow;
+
+  if (millis() - lastFrame < escRampTime) return;
+  lastFrame = millis();
+
+  // Hi/Lo range toggle
+  #if hiLoEnabled
+  static boolean hiLoToggle = false;
+  if (pulseWidth[CH_HILO_TOGGLE] > 1700 && !hiLoToggle) {
+    hiLoIsHigh = !hiLoIsHigh;
+    hiLoToggle = true;
+  }
+  if (pulseWidth[CH_HILO_TOGGLE] < 1600) hiLoToggle = false;
+  #endif
+
+  // Compute effective ESC limits (narrowed in low range)
+  uint16_t effectiveMax = escPulseMax;
+  uint16_t effectiveMin = escPulseMin;
+  #if hiLoEnabled
+  if (!hiLoIsHigh) {
+    uint16_t fwdRange = (escPulseMax - 1500) * hiLoRatioPercent / 100;
+    uint16_t revRange = (1500 - escPulseMin) * hiLoRatioPercent / 100;
+    effectiveMax = 1500 + fwdRange;
+    effectiveMin = 1500 - revRange;
+  }
+  #endif
+
+  static uint16_t escPulseWidth = 1500;
+  uint16_t target;
+
+  switch (driveState) {
+  case 0: // Standing still
+    escPulseWidth = 1500;
+    escIsBraking = false;
+    escIsDriving = false;
+    escInReverse = false;
+    if (pulse() == 1) driveState = 1;
+    if (pulse() == -1) driveState = 3;
+    break;
+
+  case 1: // Forward
+    target = map(currentSpeed, 0, 500, 1500, effectiveMax);
+    if (escPulseWidth < target) escPulseWidth += escAccelerationSteps;
+    if (escPulseWidth > target) escPulseWidth = target;
+    escIsDriving = true;
+    escIsBraking = false;
+    escInReverse = false;
+    if (pulse() == 0) driveState = 2;
+    if (pulse() == -1) driveState = 2;
+    break;
+
+  case 2: // Braking (forward)
+    if (escPulseWidth > 1500) escPulseWidth -= escBrakeSteps;
+    if (escPulseWidth <= 1500) { escPulseWidth = 1500; driveState = 0; }
+    escIsBraking = true;
+    break;
+
+  case 3: // Reverse
+    target = map(currentSpeed, 0, 500, 1500, effectiveMin);
+    if (escPulseWidth > target) escPulseWidth -= escAccelerationSteps;
+    if (escPulseWidth < target) escPulseWidth = target;
+    escIsDriving = true;
+    escIsBraking = false;
+    escInReverse = true;
+    if (pulse() == 0) driveState = 4;
+    if (pulse() == 1) driveState = 4;
+    break;
+
+  case 4: // Braking (reverse)
+    if (escPulseWidth < 1500) escPulseWidth += escBrakeSteps;
+    if (escPulseWidth >= 1500) { escPulseWidth = 1500; driveState = 0; }
+    escIsBraking = true;
+    break;
+  }
+
+  escPulseWidth = constrain(escPulseWidth, effectiveMin, effectiveMax);
+  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_A, escPulseWidth);
+
+  // Calculate speed for sound engine
+  currentSpeed = abs(escPulseWidth - 1500);
+}
+
+// ════════════════════════════════════════════════════════════════
+// SERVO OUTPUT (MCPWM)
+// ════════════════════════════════════════════════════════════════
+
+void mcpwmOutput() {
+  // Pass RC channels to servos with ramping
+  static uint16_t servo1 = 1500, servo2 = 1500;
+  static unsigned long lastFrame = millis();
+  if (millis() - lastFrame < 10) return;
+  lastFrame = millis();
+
+  // CH1 → Servo 1
+  uint16_t target1 = constrain(pulseWidth[1], servoMin[0], servoMax[0]);
+  if (servo1 < target1) servo1 = min((uint16_t)(servo1 + 5), target1);
+  if (servo1 > target1) servo1 = max((uint16_t)(servo1 - 5), target1);
+  mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, servo1);
+
+  // CH2 → Servo 2
+  uint16_t target2 = constrain(pulseWidth[2], servoMin[1], servoMax[1]);
+  if (servo2 < target2) servo2 = min((uint16_t)(servo2 + 5), target2);
+  if (servo2 > target2) servo2 = max((uint16_t)(servo2 - 5), target2);
+  mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, servo2);
+
+  // CH3 → Servo 3 (LEDC)
+  uint16_t s3 = constrain(pulseWidth[3], servoMin[2], servoMax[2]);
+  ledcWrite(0, map(s3, 1000, 2000, 0, 8191));
+
+  // CH4 → Servo 4 (LEDC)
+  uint16_t s4 = constrain(pulseWidth[4], servoMin[3], servoMax[3]);
+  ledcWrite(1, map(s4, 1000, 2000, 0, 8191));
+}
+
+// ════════════════════════════════════════════════════════════════
+// HYDRAULIC CONTROL (machine-type specific)
+// ════════════════════════════════════════════════════════════════
+
+#if defined EXCAVATOR_MODE
+void excavatorControl() {
+  static unsigned long lastFrame = millis();
+  if (millis() - lastFrame < 4) return;
+  lastFrame = millis();
+
+  static uint16_t hydraulicPumpVolumeInternal[17] = {0};
+  static uint16_t hydraulicPumpVolumeInternalUndelayed = 0;
+  static uint16_t hydraulicFlowVolumeInternalUndelayed = 0;
+  static uint16_t trackRattleVolumeInternal[17] = {0};
+  static uint16_t trackRattleVolumeInternalUndelayed = 0;
+  static boolean trackLisRotating = false, trackRisRotating = false;
+
+  // Boom
+  if (pulseWidth[CH_EX_BOOM] < pulseMinNeutral[CH_EX_BOOM])
+    hydraulicPumpVolumeInternal[5] = map(pulseWidth[CH_EX_BOOM], pulseMinNeutral[CH_EX_BOOM], pulseMin[CH_EX_BOOM], 0, 50);
+  else if (pulseWidth[CH_EX_BOOM] > pulseMaxNeutral[CH_EX_BOOM])
+    hydraulicPumpVolumeInternal[5] = map(pulseWidth[CH_EX_BOOM], pulseMaxNeutral[CH_EX_BOOM], pulseMax[CH_EX_BOOM], 0, 30);
+  else
+    hydraulicPumpVolumeInternal[5] = 0;
+
+  // Stick / Dipper
+  if (pulseWidth[CH_EX_STICK] < pulseMinNeutral[CH_EX_STICK])
+    hydraulicPumpVolumeInternal[6] = map(pulseWidth[CH_EX_STICK], pulseMinNeutral[CH_EX_STICK], pulseMin[CH_EX_STICK], 0, 50);
+  else if (pulseWidth[CH_EX_STICK] > pulseMaxNeutral[CH_EX_STICK])
+    hydraulicPumpVolumeInternal[6] = map(pulseWidth[CH_EX_STICK], pulseMaxNeutral[CH_EX_STICK], pulseMax[CH_EX_STICK], 0, 30);
+  else
+    hydraulicPumpVolumeInternal[6] = 0;
+
+  // Bucket
+  if (pulseWidth[CH_EX_BUCKET] < pulseMinNeutral[CH_EX_BUCKET])
+    hydraulicPumpVolumeInternal[1] = map(pulseWidth[CH_EX_BUCKET], pulseMinNeutral[CH_EX_BUCKET], pulseMin[CH_EX_BUCKET], 0, 30);
+  else if (pulseWidth[CH_EX_BUCKET] > pulseMaxNeutral[CH_EX_BUCKET])
+    hydraulicPumpVolumeInternal[1] = map(pulseWidth[CH_EX_BUCKET], pulseMaxNeutral[CH_EX_BUCKET], pulseMax[CH_EX_BUCKET], 0, 30);
+  else
+    hydraulicPumpVolumeInternal[1] = 0;
+
+  // Swing
+  if (pulseWidth[CH_EX_SWING] < pulseMinNeutral[CH_EX_SWING])
+    hydraulicPumpVolumeInternal[2] = map(pulseWidth[CH_EX_SWING], pulseMinNeutral[CH_EX_SWING], pulseMin[CH_EX_SWING], 0, 40);
+  else if (pulseWidth[CH_EX_SWING] > pulseMaxNeutral[CH_EX_SWING])
+    hydraulicPumpVolumeInternal[2] = map(pulseWidth[CH_EX_SWING], pulseMaxNeutral[CH_EX_SWING], pulseMax[CH_EX_SWING], 0, 40);
+  else
+    hydraulicPumpVolumeInternal[2] = 0;
+
+  // Sum pump volumes
+  if (engineRunning) {
+    hydraulicPumpVolumeInternalUndelayed = constrain(
+      hydraulicPumpVolumeInternal[1] + hydraulicPumpVolumeInternal[2] +
+      hydraulicPumpVolumeInternal[5] + hydraulicPumpVolumeInternal[6], 0, 100) *
+      map(currentRpm, 0, 500, 30, 100) / 100;
+  } else {
+    hydraulicPumpVolumeInternalUndelayed = 0;
+  }
+
+  // Smooth ramp
+  if (hydraulicPumpVolumeInternalUndelayed < hydraulicPumpVolume) hydraulicPumpVolume--;
+  if (hydraulicPumpVolumeInternalUndelayed > hydraulicPumpVolume) hydraulicPumpVolume++;
+
+  // Hydraulic flow (boom lowering)
+  if (engineRunning && pulseWidth[CH_EX_BOOM] > pulseMaxNeutral[CH_EX_BOOM])
+    hydraulicFlowVolumeInternalUndelayed = map(pulseWidth[CH_EX_BOOM], pulseMaxNeutral[CH_EX_BOOM], pulseMax[CH_EX_BOOM] - 200, 0, 100);
+  else
+    hydraulicFlowVolumeInternalUndelayed = 0;
+
+  if (hydraulicFlowVolumeInternalUndelayed < hydraulicFlowVolume) hydraulicFlowVolume--;
+  if (hydraulicFlowVolumeInternalUndelayed > hydraulicFlowVolume) hydraulicFlowVolume++;
+
+  // Track rattle from left track (CH7) and right track (CH8)
+  // (Only relevant for tracked excavators with dual stick drive)
+  if (pulseWidth[CH_EX_TRACK_L] > 1570) {
+    trackRattleVolumeInternal[7] = map(pulseWidth[CH_EX_TRACK_L], 1570, 1800, 0, 100);
+    trackLisRotating = true;
+  } else if (pulseWidth[CH_EX_TRACK_L] < 1430) {
+    trackRattleVolumeInternal[7] = map(pulseWidth[CH_EX_TRACK_L], 1430, 1200, 0, 100);
+    trackLisRotating = true;
+  } else {
+    trackRattleVolumeInternal[7] = 0;
+    trackLisRotating = false;
+  }
+
+  if (pulseWidth[CH_EX_TRACK_R] > 1570) {
+    trackRattleVolumeInternal[8] = map(pulseWidth[CH_EX_TRACK_R], 1570, 1800, 0, 100);
+    trackRisRotating = true;
+  } else if (pulseWidth[CH_EX_TRACK_R] < 1430) {
+    trackRattleVolumeInternal[8] = map(pulseWidth[CH_EX_TRACK_R], 1430, 1200, 0, 100);
+    trackRisRotating = true;
+  } else {
+    trackRattleVolumeInternal[8] = 0;
+    trackRisRotating = false;
+  }
+
+  tracksAreRotating = trackLisRotating || trackRisRotating;
+
+  if (engineRunning) {
+    trackRattleVolumeInternalUndelayed = constrain(trackRattleVolumeInternal[7] + trackRattleVolumeInternal[8], 0, 100) * map(currentRpm, 0, 500, 100, 150) / 100;
+  } else {
+    trackRattleVolumeInternalUndelayed = 0;
+  }
+
+  if (trackRattleVolumeInternalUndelayed < trackRattleVolume) trackRattleVolume--;
+  if (trackRattleVolumeInternalUndelayed > trackRattleVolume) trackRattleVolume++;
+
+  // Hydraulic load → knock volume & RPM drop
+  hydraulicDependentKnockVolume = map(hydraulicPumpVolume, 0, 100, 50, 100);
+  hydraulicLoad = map(hydraulicPumpVolume, 0, 100, 0, 40);
+
+  // Bucket rattle on fast stick movement
+  if (engineRunning && currentRpm > 400) {
+    static uint16_t lastBucket = 1500, lastDipper = 1500;
+    if (abs(pulseWidth[CH_EX_BUCKET] - lastBucket) > 100) bucketRattleTrigger = true;
+    lastBucket = pulseWidth[CH_EX_BUCKET];
+    if (abs(pulseWidth[CH_EX_SWING] - lastDipper) > 100) bucketRattleTrigger = true;
+    lastDipper = pulseWidth[CH_EX_SWING];
+  }
+
+  #ifdef TRACK_RATTLE_2
+  static uint32_t lastTrackRattle2Time = millis();
+  uint32_t interval = constrain(max(trackRattleVolumeInternal[7], trackRattleVolumeInternal[8]), (uint16_t)0, (uint16_t)100);
+  interval = map(interval, 0, 100, trackRattleIntervalMax, trackRattleIntervalMin);
+  if (millis() - lastTrackRattle2Time > interval) {
+    trackRattle2Trigger = true;
+    lastTrackRattle2Time = millis();
+  }
+  #endif
+}
+#endif
+
+#if defined LOADER_MODE
+void loaderControl() {
+  // Boom up → pump RPM demand
+  if (pulseWidth[CH_LD_BOOM] < pulseMinNeutral[CH_LD_BOOM])
+    targetHydraulicRpm[2] = map(pulseWidth[CH_LD_BOOM], pulseMinNeutral[CH_LD_BOOM], pulseMin[CH_LD_BOOM], 0, 300);
+  else
+    targetHydraulicRpm[2] = 0;
+
+  // Bucket up → pump RPM demand
+  if (pulseWidth[CH_LD_BUCKET] < pulseMinNeutral[CH_LD_BUCKET])
+    targetHydraulicRpm[1] = map(pulseWidth[CH_LD_BUCKET], pulseMinNeutral[CH_LD_BUCKET], pulseMin[CH_LD_BUCKET], 0, 150);
+  else
+    targetHydraulicRpm[1] = 0;
+
+  targetHydraulicRpm[0] = targetHydraulicRpm[1] + targetHydraulicRpm[2];
+  currentThrottleHydraulic = targetHydraulicRpm[0];
+
+  // Boom lowering → flow sound
+  if (pulseWidth[CH_LD_BOOM] > pulseMaxNeutral[CH_LD_BOOM])
+    hydraulicFlowVolume = map(pulseWidth[CH_LD_BOOM], pulseMaxNeutral[CH_LD_BOOM], pulseMax[CH_LD_BOOM] - 200, 0, 100);
+  else
+    hydraulicFlowVolume = 0;
+}
+#endif
+
+#if defined CRANE_MODE
+void hydraulicSound(int i, int rpm, int rpmRev, int vol, int volRev) {
+  if (pulseWidth[i] < pulseMinNeutral[i]) {
+    targetHydraulicRpm[i] = map(pulseWidth[i], pulseMinNeutral[i], pulseMin[i], 0, rpm);
+    hydraulicPumpVolumeArray[i] = map(pulseWidth[i], pulseMinNeutral[i], pulseMin[i], 0, vol);
+  } else if (pulseWidth[i] > pulseMaxNeutral[i]) {
+    targetHydraulicRpm[i] = map(pulseWidth[i], pulseMaxNeutral[i], pulseMax[i], 0, rpmRev);
+    hydraulicPumpVolumeArray[i] = map(pulseWidth[i], pulseMaxNeutral[i], pulseMax[i], 0, volRev);
+  } else {
+    targetHydraulicRpm[i] = 0;
+    hydraulicPumpVolumeArray[i] = 0;
+  }
+}
+
+void craneControl() {
+  hydraulicSound(CH_CR_BOOM, 300, 0, 50, 0);      // Boom lift
+  hydraulicSound(CH_CR_EXTEND, 300, 300, 50, 50);  // Boom extension
+  hydraulicSound(CH_CR_SWING, 250, 250, 50, 50);   // Swing
+
+  targetHydraulicRpm[0] = targetHydraulicRpm[CH_CR_BOOM] + targetHydraulicRpm[CH_CR_EXTEND] + targetHydraulicRpm[CH_CR_SWING];
+  currentThrottleHydraulic = targetHydraulicRpm[0];
+  hydraulicPumpVolume = hydraulicPumpVolumeArray[CH_CR_BOOM] + hydraulicPumpVolumeArray[CH_CR_EXTEND] + hydraulicPumpVolumeArray[CH_CR_SWING];
+
+  // Boom lowering → flow sound
+  if (pulseWidth[CH_CR_BOOM] > pulseMaxNeutral[CH_CR_BOOM])
+    hydraulicFlowVolume = map(pulseWidth[CH_CR_BOOM], pulseMaxNeutral[CH_CR_BOOM], pulseMax[CH_CR_BOOM] - 200, 0, 100);
+  else
+    hydraulicFlowVolume = 0;
+
+  hydraulicDependentKnockVolume = map(targetHydraulicRpm[0], 0, 100, 50, 100);
+}
+#endif
+
+#if defined DOZER_MODE
+void dozerControl() {
+  // Blade lift → pump volume
+  uint16_t bladeVol = 0;
+  if (pulseWidth[CH_DZ_BLADE] < pulseMinNeutral[CH_DZ_BLADE])
+    bladeVol = map(pulseWidth[CH_DZ_BLADE], pulseMinNeutral[CH_DZ_BLADE], pulseMin[CH_DZ_BLADE], 0, 60);
+  else if (pulseWidth[CH_DZ_BLADE] > pulseMaxNeutral[CH_DZ_BLADE])
+    bladeVol = map(pulseWidth[CH_DZ_BLADE], pulseMaxNeutral[CH_DZ_BLADE], pulseMax[CH_DZ_BLADE], 0, 40);
+
+  // Blade tilt → pump volume
+  uint16_t tiltVol = 0;
+  if (pulseWidth[CH_DZ_TILT] < pulseMinNeutral[CH_DZ_TILT])
+    tiltVol = map(pulseWidth[CH_DZ_TILT], pulseMinNeutral[CH_DZ_TILT], pulseMin[CH_DZ_TILT], 0, 30);
+  else if (pulseWidth[CH_DZ_TILT] > pulseMaxNeutral[CH_DZ_TILT])
+    tiltVol = map(pulseWidth[CH_DZ_TILT], pulseMaxNeutral[CH_DZ_TILT], pulseMax[CH_DZ_TILT], 0, 30);
+
+  // Ripper → pump volume
+  uint16_t ripperVol = 0;
+  if (pulseWidth[CH_DZ_RIPPER] < pulseMinNeutral[CH_DZ_RIPPER])
+    ripperVol = map(pulseWidth[CH_DZ_RIPPER], pulseMinNeutral[CH_DZ_RIPPER], pulseMin[CH_DZ_RIPPER], 0, 40);
+  else if (pulseWidth[CH_DZ_RIPPER] > pulseMaxNeutral[CH_DZ_RIPPER])
+    ripperVol = map(pulseWidth[CH_DZ_RIPPER], pulseMaxNeutral[CH_DZ_RIPPER], pulseMax[CH_DZ_RIPPER], 0, 30);
+
+  hydraulicPumpVolume = constrain(bladeVol + tiltVol + ripperVol, 0, 100);
+  hydraulicDependentKnockVolume = map(hydraulicPumpVolume, 0, 100, 50, 100);
+  hydraulicLoad = map(hydraulicPumpVolume, 0, 100, 0, 40);
+}
+#endif
+
+#if defined GRADER_MODE
+void graderControl() {
+  // Blade lift → pump volume (heaviest function)
+  uint16_t bladeVol = 0;
+  if (pulseWidth[CH_GR_BLADE] < pulseMinNeutral[CH_GR_BLADE])
+    bladeVol = map(pulseWidth[CH_GR_BLADE], pulseMinNeutral[CH_GR_BLADE], pulseMin[CH_GR_BLADE], 0, 60);
+  else if (pulseWidth[CH_GR_BLADE] > pulseMaxNeutral[CH_GR_BLADE])
+    bladeVol = map(pulseWidth[CH_GR_BLADE], pulseMaxNeutral[CH_GR_BLADE], pulseMax[CH_GR_BLADE], 0, 40);
+
+  // Circle rotation → pump volume (moldboard angle)
+  uint16_t circleVol = 0;
+  if (pulseWidth[CH_GR_CIRCLE] < pulseMinNeutral[CH_GR_CIRCLE])
+    circleVol = map(pulseWidth[CH_GR_CIRCLE], pulseMinNeutral[CH_GR_CIRCLE], pulseMin[CH_GR_CIRCLE], 0, 40);
+  else if (pulseWidth[CH_GR_CIRCLE] > pulseMaxNeutral[CH_GR_CIRCLE])
+    circleVol = map(pulseWidth[CH_GR_CIRCLE], pulseMaxNeutral[CH_GR_CIRCLE], pulseMax[CH_GR_CIRCLE], 0, 40);
+
+  // Blade tilt → pump volume (lean left/right)
+  uint16_t tiltVol = 0;
+  if (pulseWidth[CH_GR_TILT] < pulseMinNeutral[CH_GR_TILT])
+    tiltVol = map(pulseWidth[CH_GR_TILT], pulseMinNeutral[CH_GR_TILT], pulseMin[CH_GR_TILT], 0, 30);
+  else if (pulseWidth[CH_GR_TILT] > pulseMaxNeutral[CH_GR_TILT])
+    tiltVol = map(pulseWidth[CH_GR_TILT], pulseMaxNeutral[CH_GR_TILT], pulseMax[CH_GR_TILT], 0, 30);
+
+  // Articulation steering → pump volume
+  uint16_t articulationVol = 0;
+  if (pulseWidth[CH_GR_ARTICULATION] < pulseMinNeutral[CH_GR_ARTICULATION])
+    articulationVol = map(pulseWidth[CH_GR_ARTICULATION], pulseMinNeutral[CH_GR_ARTICULATION], pulseMin[CH_GR_ARTICULATION], 0, 30);
+  else if (pulseWidth[CH_GR_ARTICULATION] > pulseMaxNeutral[CH_GR_ARTICULATION])
+    articulationVol = map(pulseWidth[CH_GR_ARTICULATION], pulseMaxNeutral[CH_GR_ARTICULATION], pulseMax[CH_GR_ARTICULATION], 0, 30);
+
+  // Sum as RPM demand for pump sound
+  targetHydraulicRpm[0] = bladeVol * 3 + circleVol * 3 + tiltVol * 2 + articulationVol * 2;
+  currentThrottleHydraulic = targetHydraulicRpm[0];
+  hydraulicPumpVolume = constrain(bladeVol + circleVol + tiltVol + articulationVol, 0, 100);
+
+  // Blade lowering → flow sound (gravity return)
+  if (pulseWidth[CH_GR_BLADE] > pulseMaxNeutral[CH_GR_BLADE])
+    hydraulicFlowVolume = map(pulseWidth[CH_GR_BLADE], pulseMaxNeutral[CH_GR_BLADE], pulseMax[CH_GR_BLADE] - 200, 0, 100);
+  else
+    hydraulicFlowVolume = 0;
+
+  hydraulicDependentKnockVolume = map(targetHydraulicRpm[0], 0, 100, 50, 100);
+}
+#endif
+
+#if defined SKIDSTEER_MODE
+void skidSteerControl() {
+  // Bucket → pump RPM demand
+  if (pulseWidth[CH_SS_BUCKET] < pulseMinNeutral[CH_SS_BUCKET])
+    targetHydraulicRpm[1] = map(pulseWidth[CH_SS_BUCKET], pulseMinNeutral[CH_SS_BUCKET], pulseMin[CH_SS_BUCKET], 0, 150);
+  else
+    targetHydraulicRpm[1] = 0;
+
+  // Boom → pump RPM demand
+  if (pulseWidth[CH_SS_BOOM] < pulseMinNeutral[CH_SS_BOOM])
+    targetHydraulicRpm[2] = map(pulseWidth[CH_SS_BOOM], pulseMinNeutral[CH_SS_BOOM], pulseMin[CH_SS_BOOM], 0, 300);
+  else
+    targetHydraulicRpm[2] = 0;
+
+  targetHydraulicRpm[0] = targetHydraulicRpm[1] + targetHydraulicRpm[2];
+  currentThrottleHydraulic = targetHydraulicRpm[0];
+
+  // Boom lowering → flow sound
+  if (pulseWidth[CH_SS_BOOM] > pulseMaxNeutral[CH_SS_BOOM])
+    hydraulicFlowVolume = map(pulseWidth[CH_SS_BOOM], pulseMaxNeutral[CH_SS_BOOM], pulseMax[CH_SS_BOOM] - 200, 0, 100);
+  else
+    hydraulicFlowVolume = 0;
+}
+#endif
+
+// ════════════════════════════════════════════════════════════════
+// DAC OFFSET FADE (prevents pop on startup)
+// ════════════════════════════════════════════════════════════════
+
+void dacOffsetFade() {
+  static unsigned long lastFrame = millis();
+  if (millis() - lastFrame < 10) return;
+  lastFrame = millis();
+
+  if (dacOffset < 128) dacOffset++;
+}
+
+// ════════════════════════════════════════════════════════════════
+// CORE 0 TASK — Audio engine, ESC, mass sim, shaker
+// ════════════════════════════════════════════════════════════════
+
+void Task1code(void *parameters) {
+  while (true) {
+    rtc_wdt_feed();
+    dacOffsetFade();
+    engineMassSimulation();
+    esc();
+    vTaskDelay(1); // feed watchdog
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// NVS CHANNEL MAPPING — runtime-configurable, no rebuild needed
+// ════════════════════════════════════════════════════════════════
+
+Preferences nvsPrefs;
+
+// Table mapping variable names to their pointers
+struct ChMapEntry { const char* name; uint8_t* ptr; };
+const ChMapEntry CH_MAP[] = {
+  {"CH_THROTTLE",      &CH_THROTTLE},
+  {"CH_HORN",          &CH_HORN},
+  {"CH_ENGINE_TOGGLE", &CH_ENGINE_TOGGLE},
+  {"CH_HILO_TOGGLE",   &CH_HILO_TOGGLE},
+  {"CH_EX_BUCKET",     &CH_EX_BUCKET},
+  {"CH_EX_SWING",      &CH_EX_SWING},
+  {"CH_EX_BOOM",       &CH_EX_BOOM},
+  {"CH_EX_STICK",      &CH_EX_STICK},
+  {"CH_EX_TRACK_L",    &CH_EX_TRACK_L},
+  {"CH_EX_TRACK_R",    &CH_EX_TRACK_R},
+  {"CH_LD_BUCKET",     &CH_LD_BUCKET},
+  {"CH_LD_BOOM",       &CH_LD_BOOM},
+  {"CH_CR_BOOM",       &CH_CR_BOOM},
+  {"CH_CR_EXTEND",     &CH_CR_EXTEND},
+  {"CH_CR_SWING",      &CH_CR_SWING},
+  {"CH_DZ_BLADE",      &CH_DZ_BLADE},
+  {"CH_DZ_TILT",       &CH_DZ_TILT},
+  {"CH_DZ_RIPPER",     &CH_DZ_RIPPER},
+  {"CH_SS_BUCKET",     &CH_SS_BUCKET},
+  {"CH_SS_BOOM",       &CH_SS_BOOM},
+  {"CH_GR_BLADE",      &CH_GR_BLADE},
+  {"CH_GR_CIRCLE",     &CH_GR_CIRCLE},
+  {"CH_GR_TILT",       &CH_GR_TILT},
+  {"CH_GR_ARTICULATION", &CH_GR_ARTICULATION},
+  {"CH_LIGHTS",          &CH_LIGHTS},
+};
+const int CH_MAP_COUNT = sizeof(CH_MAP) / sizeof(CH_MAP[0]);
+
+// ── Runtime settings table (volatile int volumes only) ──
+struct SettingEntry { const char* name; volatile int* ptr; int minVal; int maxVal; };
+const SettingEntry SETTINGS_MAP[] = {
+  {"masterVolume",                  &masterVolume,                    0, 200},
+  {"idleVolumePercentage",          &idleVolumePercentage,            0, 300},
+  {"dieselKnockVolumePercentage",   &dieselKnockVolumePercentage,     0, 1000},
+  {"turboVolumePercentage",         &turboVolumePercentage,           0, 300},
+  {"hornVolumePercentage",          &hornVolumePercentage,            0, 300},
+  {"brakeVolumePercentage",         &brakeVolumePercentage,           0, 300},
+  {"hydraulicPumpVolumePercentage", &hydraulicPumpVolumePercentage,   0, 300},
+  {"hydraulicFlowVolumePercentage", &hydraulicFlowVolumePercentage,   0, 300},
+  {"trackRattleVolumePercentage",   &trackRattleVolumePercentage,     0, 300},
+  {"bucketRattleVolumePercentage",  &bucketRattleVolumePercentage,    0, 300},
+  {"reversingVolumePercentage",     &reversingVolumePercentage,       0, 300},
+  {"startVolumePercentage",         &startVolumePercentage,           0, 300},
+};
+
+void loadChannelsFromNVS() {
+  nvsPrefs.begin("chmap", true);  // read-only
+  for (int i = 0; i < CH_MAP_COUNT; i++) {
+    // NVS key max 15 chars — use short key (index)
+    char key[4];
+    snprintf(key, sizeof(key), "c%d", i);
+    if (nvsPrefs.isKey(key)) {
+      *CH_MAP[i].ptr = nvsPrefs.getUChar(key, *CH_MAP[i].ptr);
+    }
+  }
+  // Load channel reverse flags
+  for (int i = 1; i <= 16; i++) {
+    char key[4];
+    snprintf(key, sizeof(key), "r%d", i);
+    if (nvsPrefs.isKey(key)) {
+      channelReversed[i] = nvsPrefs.getBool(key, false);
+    }
+  }
+  // Load channel enable flags
+  for (int i = 1; i <= 16; i++) {
+    char key[4];
+    snprintf(key, sizeof(key), "e%d", i);
+    if (nvsPrefs.isKey(key)) {
+      channelEnabled[i] = nvsPrefs.getBool(key, true);
+    }
+  }
+  nvsPrefs.end();
+}
+
+void saveChannelsToNVS() {
+  nvsPrefs.begin("chmap", false);  // read-write
+  for (int i = 0; i < CH_MAP_COUNT; i++) {
+    char key[4];
+    snprintf(key, sizeof(key), "c%d", i);
+    nvsPrefs.putUChar(key, *CH_MAP[i].ptr);
+  }
+  // Save channel reverse flags
+  for (int i = 1; i <= 16; i++) {
+    char key[4];
+    snprintf(key, sizeof(key), "r%d", i);
+    nvsPrefs.putBool(key, channelReversed[i]);
+  }
+  // Save channel enable flags
+  for (int i = 1; i <= 16; i++) {
+    char key[4];
+    snprintf(key, sizeof(key), "e%d", i);
+    nvsPrefs.putBool(key, channelEnabled[i]);
+  }
+  nvsPrefs.end();
+}
+
+const int SETTINGS_MAP_COUNT = sizeof(SETTINGS_MAP) / sizeof(SETTINGS_MAP[0]);
+
+void loadSettingsFromNVS() {
+  nvsPrefs.begin("settings", true);
+  for (int i = 0; i < SETTINGS_MAP_COUNT; i++) {
+    char key[4];
+    snprintf(key, sizeof(key), "s%d", i);
+    if (nvsPrefs.isKey(key)) {
+      *SETTINGS_MAP[i].ptr = nvsPrefs.getInt(key, *SETTINGS_MAP[i].ptr);
+    }
+  }
+  // Small-type settings
+  if (nvsPrefs.isKey("acc"))   acc = nvsPrefs.getChar("acc", acc);
+  if (nvsPrefs.isKey("dec"))   dec = nvsPrefs.getChar("dec", dec);
+  if (nvsPrefs.isKey("rl"))    escRampTimeLow = nvsPrefs.getUChar("rl", escRampTimeLow);
+  if (nvsPrefs.isKey("rh"))    escRampTimeHigh = nvsPrefs.getUChar("rh", escRampTimeHigh);
+  if (nvsPrefs.isKey("bs"))    escBrakeSteps = nvsPrefs.getUChar("bs", escBrakeSteps);
+  if (nvsPrefs.isKey("as"))    escAccelerationSteps = nvsPrefs.getUChar("as", escAccelerationSteps);
+  if (nvsPrefs.isKey("autoSt")) autoEngineStart = nvsPrefs.getBool("autoSt", autoEngineStart);
+  nvsPrefs.end();
+}
+
+void saveSettingsToNVS() {
+  nvsPrefs.begin("settings", false);
+  for (int i = 0; i < SETTINGS_MAP_COUNT; i++) {
+    char key[4];
+    snprintf(key, sizeof(key), "s%d", i);
+    nvsPrefs.putInt(key, *SETTINGS_MAP[i].ptr);
+  }
+  nvsPrefs.putChar("acc", acc);
+  nvsPrefs.putChar("dec", dec);
+  nvsPrefs.putUChar("rl", escRampTimeLow);
+  nvsPrefs.putUChar("rh", escRampTimeHigh);
+  nvsPrefs.putUChar("bs", escBrakeSteps);
+  nvsPrefs.putUChar("as", escAccelerationSteps);
+  nvsPrefs.putBool("autoSt", autoEngineStart);
+  nvsPrefs.end();
+}
+
+// Serial command buffer
+static char serialBuf[128];
+static uint8_t serialBufIdx = 0;
+
+void processSerialCommand(const char* cmd) {
+  // CH:NAME=VALUE — set a channel mapping
+  if (strncmp(cmd, "CH:", 3) == 0) {
+    const char* eq = strchr(cmd + 3, '=');
+    if (!eq) { Serial.println("ERR:bad format"); return; }
+    
+    // Extract name
+    int nameLen = eq - (cmd + 3);
+    if (nameLen <= 0 || nameLen > 20) { Serial.println("ERR:bad name"); return; }
+    char name[24];
+    strncpy(name, cmd + 3, nameLen);
+    name[nameLen] = '\0';
+    
+    // Extract value (0 = unassigned/none)
+    int val = atoi(eq + 1);
+    if (val < 0 || val > 16) { Serial.println("ERR:ch 0-16"); return; }
+    
+    // Find and set
+    for (int i = 0; i < CH_MAP_COUNT; i++) {
+      if (strcmp(name, CH_MAP[i].name) == 0) {
+        *CH_MAP[i].ptr = (uint8_t)val;
+        Serial.printf("OK:%s=%d\n", name, val);
+        return;
+      }
+    }
+    Serial.printf("ERR:unknown %s\n", name);
+  }
+  // SET:NAME=VALUE — set a runtime setting (volume, acc, etc.)
+  else if (strncmp(cmd, "SET:", 4) == 0) {
+    const char* eq = strchr(cmd + 4, '=');
+    if (!eq) { Serial.println("ERR:bad format"); return; }
+
+    int nameLen = eq - (cmd + 4);
+    if (nameLen <= 0 || nameLen > 40) { Serial.println("ERR:bad name"); return; }
+    char name[44];
+    strncpy(name, cmd + 4, nameLen);
+    name[nameLen] = '\0';
+
+    int val = atoi(eq + 1);
+
+    // Check boolean settings first
+    if (strcmp(name, "autoEngineStart") == 0) {
+      autoEngineStart = (val != 0);
+      Serial.printf("OK:%s=%d\n", name, autoEngineStart ? 1 : 0);
+      return;
+    }
+
+    // Small-type settings (int8_t / uint8_t — can't use pointer table)
+    #define SET_SMALL(N, VAR, LO, HI) if(strcmp(name,N)==0){VAR=constrain(val,LO,HI);Serial.printf("OK:%s=%d\n",name,(int)VAR);return;}
+    SET_SMALL("acc",                  acc,                  1, 9)
+    SET_SMALL("dec",                  dec,                  1, 9)
+    SET_SMALL("escRampTimeLow",       escRampTimeLow,       5, 200)
+    SET_SMALL("escRampTimeHigh",      escRampTimeHigh,      5, 200)
+    SET_SMALL("escBrakeSteps",        escBrakeSteps,        1, 100)
+    SET_SMALL("escAccelerationSteps", escAccelerationSteps, 1, 20)
+    #undef SET_SMALL
+
+    // Check numeric settings (volatile int volumes)
+    for (int i = 0; i < SETTINGS_MAP_COUNT; i++) {
+      if (strcmp(name, SETTINGS_MAP[i].name) == 0) {
+        val = constrain(val, SETTINGS_MAP[i].minVal, SETTINGS_MAP[i].maxVal);
+        *SETTINGS_MAP[i].ptr = val;
+        Serial.printf("OK:%s=%d\n", name, val);
+        return;
+      }
+    }
+    Serial.printf("ERR:unknown %s\n", name);
+  }
+  // REV:CH=0|1 — set channel reverse flag
+  else if (strncmp(cmd, "REV:", 4) == 0) {
+    const char* eq = strchr(cmd + 4, '=');
+    if (!eq) { Serial.println("ERR:bad format"); return; }
+    int ch = atoi(cmd + 4);
+    int val = atoi(eq + 1);
+    if (ch < 1 || ch > 16) { Serial.println("ERR:ch 1-16"); return; }
+    channelReversed[ch] = (val != 0);
+    Serial.printf("OK:REV:%d=%d\n", ch, channelReversed[ch] ? 1 : 0);
+  }
+  // EN:CH=0|1 — set channel enable flag
+  else if (strncmp(cmd, "EN:", 3) == 0) {
+    const char* eq = strchr(cmd + 3, '=');
+    if (!eq) { Serial.println("ERR:bad format"); return; }
+    int ch = atoi(cmd + 3);
+    int val = atoi(eq + 1);
+    if (ch < 1 || ch > 16) { Serial.println("ERR:ch 1-16"); return; }
+    channelEnabled[ch] = (val != 0);
+    Serial.printf("OK:EN:%d=%d\n", ch, channelEnabled[ch] ? 1 : 0);
+  }
+  // SAVE — persist current channel mapping + settings to NVS
+  else if (strcmp(cmd, "SAVE") == 0) {
+    saveChannelsToNVS();
+    saveSettingsToNVS();
+    Serial.println("OK:SAVED");
+  }
+  // DUMP — print all current channel mappings + settings
+  else if (strcmp(cmd, "DUMP") == 0) {
+    for (int i = 0; i < CH_MAP_COUNT; i++) {
+      Serial.printf("CH:%s=%d\n", CH_MAP[i].name, *CH_MAP[i].ptr);
+    }
+    for (int i = 0; i < SETTINGS_MAP_COUNT; i++) {
+      Serial.printf("SET:%s=%d\n", SETTINGS_MAP[i].name, *SETTINGS_MAP[i].ptr);
+    }
+    Serial.printf("SET:acc=%d\n", (int)acc);
+    Serial.printf("SET:dec=%d\n", (int)dec);
+    Serial.printf("SET:escRampTimeLow=%d\n", (int)escRampTimeLow);
+    Serial.printf("SET:escRampTimeHigh=%d\n", (int)escRampTimeHigh);
+    Serial.printf("SET:escBrakeSteps=%d\n", (int)escBrakeSteps);
+    Serial.printf("SET:escAccelerationSteps=%d\n", (int)escAccelerationSteps);
+    Serial.printf("SET:autoEngineStart=%d\n", autoEngineStart ? 1 : 0);
+    for (int i = 1; i <= 16; i++) {
+      Serial.printf("REV:%d=%d\n", i, channelReversed[i] ? 1 : 0);
+    }
+    for (int i = 1; i <= 16; i++) {
+      Serial.printf("EN:%d=%d\n", i, channelEnabled[i] ? 1 : 0);
+    }
+    Serial.println("OK:DUMP");
+  }
+  // PING — heartbeat
+  else if (strcmp(cmd, "PING") == 0) {
+    Serial.println("OK:PONG");
+  }
+  else {
+    Serial.printf("ERR:unknown cmd '%s'\n", cmd);
+  }
+}
+
+void handleSerialCommands() {
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n' || c == '\r') {
+      if (serialBufIdx > 0) {
+        serialBuf[serialBufIdx] = '\0';
+        processSerialCommand(serialBuf);
+        serialBufIdx = 0;
+      }
+    } else if (serialBufIdx < sizeof(serialBuf) - 1) {
+      serialBuf[serialBufIdx++] = c;
+    }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// SETUP
+// ════════════════════════════════════════════════════════════════
+
+void setup() {
+
+  Serial.begin(115200);
+  Serial.println("HydraulicController starting...");
+
+  // Load channel mapping from NVS (overrides defaults in config.h)
+  loadChannelsFromNVS();
+  loadSettingsFromNVS();
+  Serial.println("Channel mapping + settings loaded from NVS");
+
+  // Try to load sound pack from flash partition (overrides compiled-in sounds)
+  if (!loadSoundPack()) {
+    Serial.println("Using compiled-in default sounds");
+  }
+
+  // Semaphores
+  xPwmSemaphore = xSemaphoreCreateMutex();
+  xRpmSemaphore = xSemaphoreCreateMutex();
+
+  // DAC — init both channels with zero output
+  dacWrite(DAC1_PIN, 0); // GPIO 25
+  dacWrite(DAC2_PIN, 0); // GPIO 26
+
+  // Servo CH3 & CH4 via LEDC
+  ledcSetup(0, 50, 13);           // 50Hz servo, 13-bit
+  ledcAttachPin(SERVO_CH3_PIN, 0);
+  ledcSetup(1, 50, 13);
+  ledcAttachPin(SERVO_CH4_PIN, 1);
+
+  // MCPWM — Servos (Unit 0) and ESC (Unit 1)
+  mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0A, SERVO_CH1_PIN);
+  mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0B, SERVO_CH2_PIN);
+  mcpwm_config_t servo_config;
+  servo_config.frequency = 50;
+  servo_config.cmpr_a = 0;
+  servo_config.cmpr_b = 0;
+  servo_config.counter_mode = MCPWM_UP_COUNTER;
+  servo_config.duty_mode = MCPWM_DUTY_MODE_0;
+  mcpwm_init(MCPWM_UNIT_0, MCPWM_TIMER_0, &servo_config);
+
+  mcpwm_gpio_init(MCPWM_UNIT_1, MCPWM1A, ESC_OUT_PIN);
+  mcpwm_config_t esc_config;
+  esc_config.frequency = 50;
+  esc_config.cmpr_a = 0;
+  esc_config.cmpr_b = 0;
+  esc_config.counter_mode = MCPWM_UP_COUNTER;
+  esc_config.duty_mode = MCPWM_DUTY_MODE_0;
+  mcpwm_init(MCPWM_UNIT_1, MCPWM_TIMER_0, &esc_config);
+
+  // RC input setup
+#if defined SBUS_COMMUNICATION
+  #if defined EMBEDDED_SBUS
+    sBus.begin(COMMAND_RX, COMMAND_TX, sbusInverted, sbusBaud);
+  #else
+    sBus.begin();
+  #endif
+#elif defined IBUS_COMMUNICATION
+  iBus.begin(Serial2, IBUSBM_NOTIMER, COMMAND_RX, COMMAND_TX);
+#elif defined SUMD_COMMUNICATION
+  sumd.begin(COMMAND_RX);
+#elif defined PPM_COMMUNICATION
+  pinMode(COMMAND_RX, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(COMMAND_RX), readPpm, RISING);
+#elif defined PWM_COMMUNICATION
+  // RMT setup for PWM reading
+  rmt_config_t rmt_rx;
+  rmt_rx.rmt_mode = RMT_MODE_RX;
+  rmt_rx.clk_div = RMT_RX_CLK_DIV;
+  rmt_rx.mem_block_num = 1;
+  rmt_rx.rx_config.filter_en = true;
+  rmt_rx.rx_config.filter_ticks_thresh = 100;
+  rmt_rx.rx_config.idle_threshold = RMT_RX_MAX_US * RMT_TICK_PER_US;
+
+  for (uint8_t i = 0; i < PWM_CHANNELS_NUM; i++) {
+    rmt_rx.channel = (rmt_channel_t)PWM_CHANNELS[i];
+    rmt_rx.gpio_num = (gpio_num_t)PWM_PINS[i];
+    rmt_config(&rmt_rx);
+    rmt_driver_install(rmt_rx.channel, 0, 0);
+    rmt_set_rx_intr_en(rmt_rx.channel, true);
+    rmt_rx_start(rmt_rx.channel, true);
+  }
+  rmt_isr_register(rmt_isr_handler, NULL, 0, NULL);
+#endif
+
+  // Wait for RC signal
+  Serial.println("Waiting for RC signal...");
+  uint32_t rcTimeout = millis();
+  while (!autoZeroDone && millis() - rcTimeout < 5000) {
+    readSbusCommands();
+    readIbusCommands();
+    readSumdCommands();
+    readPpmCommands();
+    readPwmSignals();
+    processRawChannels();
+    delay(20);
+  }
+  Serial.println(autoZeroDone ? "RC calibrated!" : "RC timeout — using defaults");
+
+  // Audio timers
+  variableTimer = timerBegin(0, 20, true);
+  timerAttachInterrupt(variableTimer, &variablePlaybackTimer, true);
+  timerAlarmWrite(variableTimer, variableTimerTicks, true);
+  timerAlarmEnable(variableTimer);
+
+  fixedTimer = timerBegin(1, 20, true);
+  timerAttachInterrupt(fixedTimer, &fixedPlaybackTimer, true);
+  timerAlarmWrite(fixedTimer, variableTimerTicks, true);
+  timerAlarmEnable(fixedTimer);
+
+  // Start Core 0 task
+  xTaskCreatePinnedToCore(Task1code, "Task1", 8192, NULL, 1, &Task1, 0);
+
+  Serial.println("HydraulicController ready!");
+  Serial.printf("Free heap: %d bytes\n", ESP.getFreeHeap());
+}
+
+// ════════════════════════════════════════════════════════════════
+// MAIN LOOP (Core 1) — RC input + hydraulic control + servos
+// ════════════════════════════════════════════════════════════════
+
+void loop() {
+  rtc_wdt_feed();
+
+  // Handle serial config commands (channel mapping, etc.)
+  handleSerialCommands();
+
+  // Read RC
+  readSbusCommands();
+  readIbusCommands();
+  readSumdCommands();
+  readPpmCommands();
+  readPwmSignals();
+  processRawChannels();
+  failsafeRcSignals();
+
+  // Throttle & sound triggers
+  mapThrottle();
+
+  // Hydraulic control (machine-specific)
+#if defined EXCAVATOR_MODE
+  excavatorControl();
+#elif defined LOADER_MODE
+  loaderControl();
+#elif defined CRANE_MODE
+  craneControl();
+#elif defined DOZER_MODE
+  dozerControl();
+#elif defined SKIDSTEER_MODE
+  skidSteerControl();
+#elif defined GRADER_MODE
+  graderControl();
+#endif
+
+  // Servo output
+  mcpwmOutput();
+
+#ifdef DEBUG_RC
+  static unsigned long lastDebug = millis();
+  if (millis() - lastDebug > 500) {
+    lastDebug = millis();
+    Serial.printf("CH1:%d CH2:%d CH3:%d CH4:%d CH5:%d CH6:%d | RPM:%d THR:%d | Pump:%d Flow:%d Track:%d\n",
+      pulseWidth[1], pulseWidth[2], pulseWidth[3], pulseWidth[4], pulseWidth[5], pulseWidth[6],
+      currentRpm, currentThrottle, hydraulicPumpVolume, hydraulicFlowVolume, trackRattleVolume);
+  }
+#endif
+}
