@@ -177,7 +177,9 @@ volatile boolean indicatorSoundOn = false;
 volatile boolean outOfFuelMessageTrigger = false;
 
 // Lights state machine
-int8_t lightsState = 0;        // 0=off, 1=parking, 2=low beam, 3=high beam, 4=work lights, 5=all
+// Modes: 0=off, 1=front lights, 2=work lights, 3=all
+int8_t lightsMode = 0;
+int8_t lightsState = 0;        // 0=off, 1=on (current mode active)
 volatile boolean lightsOn = false;
 
 volatile boolean hornLatch = false;
@@ -518,8 +520,9 @@ void IRAM_ATTR fixedPlaybackTimer() {
     curSound1Sample = 0;
   }
 
-  // Reversing beep
-  if (engineRunning && escInReverse) {
+  // Travel alarm (reversing beep — or both directions)
+  boolean alarmActive = engineRunning && (escInReverse || (travelAlarmBothDirections && escIsDriving));
+  if (alarmActive) {
     if (curReversingSample < reversingSampleCount - 1) {
       b1 = (reversingSamples[curReversingSample] * reversingVolumePercentage / 100);
       curReversingSample++;
@@ -906,15 +909,42 @@ void mapThrottle() {
   hornTrigger = (pulseWidth[CH_HORN] > 1800);
   if (!hornTrigger) hornLatch = false;
 
-  // Lights toggle (long press on CH_LIGHTS cycles through states 0-5)
-  static boolean lightsToggleLock = false;
-  if (pulseWidth[CH_LIGHTS] > 1700 && !lightsToggleLock) {
-    lightsToggleLock = true;
-    lightsState++;
-    if (lightsState > 5) lightsState = 0;
-    lightsOn = (lightsState > 0);
+  // Lights: simple on/off toggle, 2 fast flicks = cycle mode
+  // Single flick: toggle on/off (using current mode, default front lights)
+  // Double flick (2 toggles within 500ms): cycle mode: front → work → all → front
+  {
+    static boolean lightsToggleLock = false;
+    static unsigned long lastFlickTime = 0;
+    static uint8_t flickCount = 0;
+    static unsigned long flickWindow = 500; // ms window for double-flick
+
+    if (pulseWidth[CH_LIGHTS] > 1700 && !lightsToggleLock) {
+      lightsToggleLock = true;
+      unsigned long now = millis();
+
+      if (now - lastFlickTime < flickWindow) {
+        flickCount++;
+      } else {
+        flickCount = 1;
+      }
+      lastFlickTime = now;
+
+      if (flickCount >= 2) {
+        // Double-flick: cycle mode
+        lightsMode++;
+        if (lightsMode > 3) lightsMode = 1; // wrap 1→2→3→1 (skip 0=off)
+        lightsOn = true;
+        lightsState = 1;
+        flickCount = 0;
+      } else {
+        // Single flick: toggle on/off
+        lightsOn = !lightsOn;
+        lightsState = lightsOn ? 1 : 0;
+        if (lightsOn && lightsMode == 0) lightsMode = 1; // default to front lights
+      }
+    }
+    if (pulseWidth[CH_LIGHTS] < 1600) lightsToggleLock = false;
   }
-  if (pulseWidth[CH_LIGHTS] < 1600) lightsToggleLock = false;
 }
 
 // ════════════════════════════════════════════════════════════════

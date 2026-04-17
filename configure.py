@@ -9,6 +9,7 @@ import http.server
 import json
 import os
 import re
+import socketserver
 import struct
 import subprocess
 import sys
@@ -23,6 +24,8 @@ PORT = 8080
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(PROJECT_DIR, "src", "config.h")
 SOUNDS_DIR = os.path.join(PROJECT_DIR, "src", "sounds")
+VEHICLES_DIR = os.path.join(PROJECT_DIR, "vehicles")
+os.makedirs(VEHICLES_DIR, exist_ok=True)
 
 # ─── Config Parser ───────────────────────────────────────────────────────────
 
@@ -89,6 +92,69 @@ def scan_all_sounds():
                 break
         result.append({"file": fn, "label": label, "category": cat})
     return result
+
+
+# Expected variable names per sound slot (array, count, rate).
+# These are what the ISR / runtime indirection expects.
+SLOT_EXPECTED_VARS = {
+    "startSound":          ("startSamples",         "startSampleCount",         "startSampleRate"),
+    "idleSound":           ("samples",              "sampleCount",              "sampleRate"),
+    "revSound":            ("revSamples",           "revSampleCount",           "revSampleRate"),
+    "knockSound":          ("knockSamples",         "knockSampleCount",         "knockSampleRate"),
+    "turboSound":          ("turboSamples",         "turboSampleCount",         "turboSampleRate"),
+    "chargerSound":        ("chargerSamples",       "chargerSampleCount",       "chargerSampleRate"),
+    "wastegateSound":      ("wastegateSamples",     "wastegateSampleCount",     "wastegateSampleRate"),
+    "fanSound":            ("fanSamples",           "fanSampleCount",           "fanSampleRate"),
+    "hornSound":           ("hornSamples",          "hornSampleCount",          "hornSampleRate"),
+    "sirenSound":          ("sirenSamples",         "sirenSampleCount",         "sirenSampleRate"),
+    "brakeSound":          ("brakeSamples",         "brakeSampleCount",         "brakeSampleRate"),
+    "parkingBrakeSound":   ("parkingBrakeSamples",  "parkingBrakeSampleCount",  "parkingBrakeSampleRate"),
+    "shiftingSound":       ("shiftingSamples",      "shiftingSampleCount",      "shiftingSampleRate"),
+    "sound1Sound":         ("sound1Samples",        "sound1SampleCount",        "sound1SampleRate"),
+    "reversingSound":      ("reversingSamples",     "reversingSampleCount",     "reversingSampleRate"),
+    "indicatorSound":      ("indicatorSamples",     "indicatorSampleCount",     "indicatorSampleRate"),
+    "couplingSound":       ("couplingSamples",      "couplingSampleCount",      "couplingSampleRate"),
+    "uncouplingSound":     ("uncouplingSamples",    "uncouplingSampleCount",    "uncouplingSampleRate"),
+    "hydraulicPumpSound":  ("hydraulicPumpSamples", "hydraulicPumpSampleCount", "hydraulicPumpSampleRate"),
+    "hydraulicFlowSound":  ("hydraulicFlowSamples", "hydraulicFlowSampleCount", "hydraulicFlowSampleRate"),
+    "trackRattleSound":    ("trackRattleSamples",   "trackRattleSampleCount",   "trackRattleSampleRate"),
+    "bucketRattleSound":   ("bucketRattleSamples",  "bucketRattleSampleCount",  "bucketRattleSampleRate"),
+}
+
+
+def detect_sound_vars(filepath):
+    """Detect the array name, count name, and rate name defined in a sound .h file."""
+    try:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except FileNotFoundError:
+        return None, None, None
+    arr_m = re.search(r'(?:const\s+)?(?:signed\s+)?char\s+(\w+)\s*\[\]', text)
+    cnt_m = re.search(r'(?:const\s+)?(?:unsigned\s+)?int\s+(\w*[Ss]ample[Cc]ount)\s*=', text)
+    rate_m = re.search(r'(?:const\s+)?(?:unsigned\s+)?int\s+(\w*[Ss]ample[Rr]ate)\s*=', text)
+    arr_name = arr_m.group(1) if arr_m else None
+    cnt_name = cnt_m.group(1) if cnt_m else None
+    rate_name = rate_m.group(1) if rate_m else None
+    return arr_name, cnt_name, rate_name
+
+
+def make_aliases(slot, sound_file):
+    """Generate C alias lines if the sound file's variable names don't match what the slot expects."""
+    if slot not in SLOT_EXPECTED_VARS:
+        return []
+    exp_arr, exp_cnt, exp_rate = SLOT_EXPECTED_VARS[slot]
+    fpath = os.path.join(SOUNDS_DIR, sound_file)
+    act_arr, act_cnt, act_rate = detect_sound_vars(fpath)
+    if act_arr is None:
+        return []
+    aliases = []
+    if act_arr != exp_arr:
+        aliases.append(f"const signed char* {exp_arr} = {act_arr};")
+    if act_cnt and act_cnt != exp_cnt:
+        aliases.append(f"const unsigned int {exp_cnt} = {act_cnt};")
+    if act_rate and act_rate != exp_rate:
+        aliases.append(f"const unsigned int {exp_rate} = {act_rate};")
+    return aliases
 
 def read_config():
     """Parse config.h into a dict of current settings."""
@@ -301,7 +367,8 @@ def write_config(cfg):
         "CH_EX_BUCKET", "CH_EX_SWING", "CH_EX_BOOM", "CH_EX_STICK", "CH_EX_TRACK_L", "CH_EX_TRACK_R",
         "CH_LD_BUCKET", "CH_LD_BOOM",
         "CH_CR_BOOM", "CH_CR_EXTEND", "CH_CR_SWING",
-        "CH_DZ_BLADE", "CH_DZ_TILT", "CH_DZ_RIPPER",
+        "CH_DZ_BLADE", "CH_DZ_TILT", "CH_DZ_RIPPER", "CH_DZ_TRACK_L", "CH_DZ_TRACK_R",
+        "CH_DZ_ANGLE", "CH_DZ_RIPPER_TILT",
         "CH_SS_BUCKET", "CH_SS_BOOM",
         "CH_GR_BLADE", "CH_GR_CIRCLE", "CH_GR_TILT", "CH_GR_ARTICULATION",
         "CH_LIGHTS",
@@ -316,12 +383,14 @@ def write_config(cfg):
 
     # Boolean consts
     bool_vars = ["automatic", "doubleClutch", "shiftingAutoThrottle", "INDICATOR_DIR",
-                 "hiLoEnabled", "hiLoDefaultHigh", "autoEngineStart"]
+                 "hiLoEnabled", "hiLoDefaultHigh", "autoEngineStart",
+                 "travelAlarmBothDirections"]
     for var in bool_vars:
         if var in cfg:
+            val = str(cfg[var]).lower()  # ensure string "true"/"false"
             text = re.sub(
                 r'(\b' + var + r'\s*=\s*)(true|false)',
-                r'\g<1>' + cfg[var],
+                r'\g<1>' + val,
                 text
             )
 
@@ -393,11 +462,17 @@ def write_config(cfg):
         slot_map_rev[slot] = var
 
     # Replace includes line by line, tracking which slot we're in
+    # Also strip old alias lines (generated by previous saves) and regenerate them
+    alias_line_pat = re.compile(r'^(?:// Alias:.*|const\s+(?:signed\s+char\*|unsigned\s+int)\s+\w+\s*=\s*\w+;)$')
     new_lines = []
     current_slot = None
     slot_map_fwd = {v: k for k, v in slot_map_rev.items()}
     lines = text.split('\n')
     for line in lines:
+        # Skip old alias lines (will be regenerated)
+        if alias_line_pat.match(line.strip()):
+            continue
+
         for var, slot in {
             "startVolumePercentage": "startSound",
             "idleVolumePercentage": "idleSound",
@@ -426,16 +501,41 @@ def write_config(cfg):
 
         im = include_pat.search(line)
         if im and current_slot and current_slot in sounds and sounds[current_slot]:
-            line = include_pat.sub(r'\g<1>' + sounds[current_slot] + r'\3', line)
+            sound_file = sounds[current_slot]
+            line = include_pat.sub(r'\g<1>' + sound_file + r'\3', line)
+            new_lines.append(line)
+            # Generate alias lines if variable names don't match
+            aliases = make_aliases(current_slot, sound_file)
+            if aliases:
+                new_lines.append("// Alias: auto-generated variable mapping")
+                new_lines.extend(aliases)
             if current_slot == "couplingSound":
                 current_slot = "uncouplingSound"
             else:
                 current_slot = None
         elif im and current_slot == "uncouplingSound" and "uncouplingSound" in sounds and sounds["uncouplingSound"]:
-            line = include_pat.sub(r'\g<1>' + sounds["uncouplingSound"] + r'\3', line)
+            sound_file = sounds["uncouplingSound"]
+            line = include_pat.sub(r'\g<1>' + sound_file + r'\3', line)
+            new_lines.append(line)
+            aliases = make_aliases("uncouplingSound", sound_file)
+            if aliases:
+                new_lines.append("// Alias: auto-generated variable mapping")
+                new_lines.extend(aliases)
             current_slot = None
-
-        new_lines.append(line)
+        elif im and current_slot:
+            # No sound override for this slot — still generate aliases for current file
+            sound_file = im.group(2)
+            new_lines.append(line)
+            aliases = make_aliases(current_slot, sound_file)
+            if aliases:
+                new_lines.append("// Alias: auto-generated variable mapping")
+                new_lines.extend(aliases)
+            if current_slot == "couplingSound":
+                current_slot = "uncouplingSound"
+            else:
+                current_slot = None
+        else:
+            new_lines.append(line)
 
     text = '\n'.join(new_lines)
 
@@ -472,6 +572,54 @@ def write_config(cfg):
 
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         f.write(text)
+
+
+# ─── Vehicle Profiles ────────────────────────────────────────────────────────
+
+# Track which vehicle is currently loaded (None = unsaved)
+_current_vehicle_file = None
+
+def list_vehicles():
+    """Return list of saved vehicle profile names (without .json)."""
+    files = []
+    for f in sorted(glob.glob(os.path.join(VEHICLES_DIR, "*.json"))):
+        files.append(os.path.splitext(os.path.basename(f))[0])
+    return files
+
+def save_vehicle(name, cfg):
+    """Save config dict as a vehicle profile JSON."""
+    global _current_vehicle_file
+    fn = re.sub(r'[^a-zA-Z0-9_ -]', '', name).strip()
+    if not fn:
+        raise ValueError("Invalid vehicle name")
+    path = os.path.join(VEHICLES_DIR, fn + ".json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+    _current_vehicle_file = fn
+    return fn
+
+def load_vehicle(name):
+    """Load a vehicle profile and apply it to config.h."""
+    global _current_vehicle_file
+    fn = re.sub(r'[^a-zA-Z0-9_ -]', '', name).strip()
+    path = os.path.join(VEHICLES_DIR, fn + ".json")
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"Vehicle '{fn}' not found")
+    with open(path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+    write_config(cfg)
+    _current_vehicle_file = fn
+    return cfg
+
+def delete_vehicle(name):
+    """Delete a vehicle profile."""
+    global _current_vehicle_file
+    fn = re.sub(r'[^a-zA-Z0-9_ -]', '', name).strip()
+    path = os.path.join(VEHICLES_DIR, fn + ".json")
+    if os.path.isfile(path):
+        os.remove(path)
+        if _current_vehicle_file == fn:
+            _current_vehicle_file = None
 
 
 # ─── Build / Flash ───────────────────────────────────────────────────────────
@@ -733,6 +881,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/config":
             cfg = read_config()
             cfg["soundFiles"] = list_sound_files()
+            cfg["_currentVehicle"] = _current_vehicle_file
+            cfg["_vehicles"] = list_vehicles()
             self._json(cfg)
         elif path == "/api/build-log":
             self._json({"log": build_log, "running": build_running})
@@ -740,12 +890,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._json(scan_all_sounds())
         elif path == "/api/serial_ports":
             self._json(list_serial_ports())
+        elif path == "/api/vehicles":
+            self._json({"ok": True, "vehicles": list_vehicles(), "current": _current_vehicle_file})
         elif path == "/logo.png":
             logo_path = os.path.join(PROJECT_DIR, "logo.png")
             if os.path.isfile(logo_path):
                 self.send_response(200)
                 self.send_header("Content-Type", "image/png")
-                self.send_header("Cache-Control", "public, max-age=86400")
+                self.send_header("Cache-Control", "no-cache")
                 with open(logo_path, "rb") as f:
                     data = f.read()
                 self.send_header("Content-Length", str(len(data)))
@@ -847,6 +999,44 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
 
+        elif path == "/api/vehicle/save":
+            try:
+                data = json.loads(body)
+                name = data.get("name", "").strip()
+                cfg = data.get("config", {})
+                if not name:
+                    self._json({"ok": False, "error": "No vehicle name"}, 400)
+                    return
+                fn = save_vehicle(name, cfg)
+                self._json({"ok": True, "name": fn})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        elif path == "/api/vehicle/load":
+            try:
+                data = json.loads(body)
+                name = data.get("name", "").strip()
+                if not name:
+                    self._json({"ok": False, "error": "No vehicle name"}, 400)
+                    return
+                cfg = load_vehicle(name)
+                cfg["soundFiles"] = list_sound_files()
+                self._json({"ok": True, "config": cfg, "name": name})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        elif path == "/api/vehicle/delete":
+            try:
+                data = json.loads(body)
+                name = data.get("name", "").strip()
+                if not name:
+                    self._json({"ok": False, "error": "No vehicle name"}, 400)
+                    return
+                delete_vehicle(name)
+                self._json({"ok": True})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
         else:
             self.send_error(404)
 
@@ -896,13 +1086,13 @@ body { background:var(--bg); color:var(--text); font:12px/1.5 var(--font); heigh
   padding:0 16px; gap:16px; z-index:100;
 }
 .logo {
-  display:flex; align-items:center; height:70px; flex-shrink:0;
+  display:flex; align-items:center; height:var(--header-h); flex-shrink:0; overflow:hidden;
 }
-.logo img { height:70px; width:auto; display:block; }
+.logo img { height:60px; width:auto; display:block; object-fit:contain; }
 .machine-name {
-  font-size:11px; font-weight:700; color:var(--accent);
-  padding:3px 10px; background:var(--accent-dim); border-radius:var(--radius);
-  max-width:250px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-size:18px; font-weight:700; color:var(--accent);
+  padding:4px 14px; background:var(--accent-dim); border-radius:var(--radius);
+  max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
 .header-sep { width:1px; height:24px; background:var(--border-hl); }
 .header-actions { margin-left:auto; display:flex; gap:4px; align-items:center; }
@@ -1089,11 +1279,13 @@ input:checked + .sl::before { transform:translateX(18px); background:#000; }
 <body>
 
 <div class="header-bar">
-  <div class="logo"><img src="/logo.png" alt="Caterpillar Electro-Hydraulic Controller"></div>
+  <div class="logo"><img src="/logo.png?v=${Date.now()}" alt="Caterpillar Electro-Hydraulic Controller"></div>
   <div class="header-sep"></div>
   <div id="machineName" class="machine-name"></div>
   <div class="header-actions">
     <button class="btn btn-primary btn-sm" onclick="saveConfig()">&#128190; Save</button>
+    <button class="btn btn-sm" onclick="saveAsNewVehicle()" title="Save as new vehicle profile">Save As</button>
+    <button class="btn btn-sm" onclick="exportVehicle()" title="Export config as .json">&#128229;</button>
     <button class="btn btn-primary btn-sm" onclick="startBuild(false)">&#9881; Build</button>
     <button class="btn btn-primary btn-sm" onclick="startBuild(true)">&#9889; Flash</button>
   </div>
@@ -1112,7 +1304,7 @@ const TABS = [
   { id:'esc',       label:'ESC / Drive',       icon:'\u26A1' },
   { id:'servos',    label:'Channels',          icon:'\u21C4' },
   { id:'soundtech', label:'Sound Technician',  icon:'\u2692' },
-  { id:'build',     label:'Build Log',         icon:'\u25B6' },
+  { id:'build',     label:'Diagnostics',       icon:'\u25B6' },
 ];
 
 // Machine-specific channel labels
@@ -1136,8 +1328,8 @@ const CH_MAP_COMMON = [
 ];
 const CH_MAP_MACHINE = {
   'EXCAVATOR_MODE': [
-    { v: 'CH_EX_TRACK_L', label: 'Track L' },
     { v: 'CH_EX_TRACK_R', label: 'Track R' },
+    { v: 'CH_EX_TRACK_L', label: 'Track L' },
     { v: 'CH_EX_BOOM',    label: 'Boom' },
     { v: 'CH_EX_STICK',   label: 'Arm' },
     { v: 'CH_EX_BUCKET',  label: 'Bucket' },
@@ -1153,9 +1345,13 @@ const CH_MAP_MACHINE = {
     { v: 'CH_CR_SWING',  label: 'Swing' },
   ],
   'DOZER_MODE': [
-    { v: 'CH_DZ_BLADE',  label: 'Blade Lift' },
-    { v: 'CH_DZ_TILT',   label: 'Blade Tilt' },
-    { v: 'CH_DZ_RIPPER', label: 'Ripper' },
+    { v: 'CH_DZ_TRACK_R',      label: 'Track R' },
+    { v: 'CH_DZ_TRACK_L',      label: 'Track L' },
+    { v: 'CH_DZ_BLADE',        label: 'Blade Lift' },
+    { v: 'CH_DZ_RIPPER',       label: 'Ripper' },
+    { v: 'CH_DZ_TILT',         label: 'Blade Tilt' },
+    { v: 'CH_DZ_ANGLE',        label: 'Blade Angle' },
+    { v: 'CH_DZ_RIPPER_TILT',  label: 'Ripper Tilt' },
   ],
   'SKIDSTEER_MODE': [
     { v: 'CH_SS_BUCKET', label: 'Bucket' },
@@ -1188,6 +1384,10 @@ async function init() {
   soundFiles = data.soundFiles || [];
   delete data.soundFiles;
   CFG = data;
+  _vehicleList = data._vehicles || [];
+  _currentVehicle = data._currentVehicle || null;
+  delete CFG._vehicles;
+  delete CFG._currentVehicle;
   renderTabs();
   renderPanels();
   updateMachineName();
@@ -1310,7 +1510,11 @@ function onMachineChange() {
   updateMachineName();
   // Re-render the entire Channels panel (labels + mapping change per machine)
   const servoPanel = document.getElementById('p-servos');
-  if (servoPanel) servoPanel.outerHTML = panelServos();
+  if (servoPanel) {
+    const wasActive = servoPanel.classList.contains('active');
+    servoPanel.outerHTML = panelServos();
+    if (wasActive) document.getElementById('p-servos').classList.add('active');
+  }
 }
 
 function panelMachine() {
@@ -1333,15 +1537,19 @@ function panelMachine() {
         placeholder="${MACHINE_NAMES[CFG.machineType]||''}">
     </div>
     <p class="hint">Override the display name shown in the top bar (leave blank for default)</p>
-    <div class="section-title">Master Volume</div>
-    ${numField('Master Volume %', 'masterVolume', 0, 300, 5)}
-    <div class="section-title">Debug Output</div>
-    <div class="check-group">
-      ${checkbox('RC Channels', 'debugRc')}
-      ${checkbox('ESC State', 'debugEsc')}
-      ${checkbox('Sound Stats', 'debugSound')}
-      ${checkbox('Hydraulic', 'debugHydraulic')}
+
+    <div class="section-title">Vehicle Profiles</div>
+    <p class="hint" style="margin-bottom:6px;">Current: <strong id="currentVehicleName">${_currentVehicle || '(unsaved)'}</strong></p>
+    <div style="display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap;">
+      <button class="btn btn-primary btn-sm" onclick="saveAsNewVehicle()">&#128190; Save As New</button>
+      <button class="btn btn-sm" onclick="exportVehicle()">&#128229; Export .json</button>
+      <label class="btn btn-sm" style="cursor:pointer;">&#128228; Import .json
+        <input type="file" accept=".json" onchange="importVehicle(this)" style="display:none;">
+      </label>
     </div>
+    <table style="width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:6px;overflow:hidden;">
+      <tbody id="vehicleListBody">${_vehicleListRows()}</tbody>
+    </table>
   </div>`;
 }
 
@@ -1415,8 +1623,6 @@ function panelSounds() {
     <div class="section-title">Track Rattle</div>
     <div class="field"><label>Sound File</label>${soundSelect('trackRattleSound', s.trackRattleSound)}</div>
     ${numField('Track Rattle Volume %', 'trackRattleVolumePercentage', 0, 500, 5)}
-    <div class="check-group">${checkbox('Enable Track Rattle 2 (periodic clank)', 'trackRattle2Enabled')}</div>
-    ${numField('Rattle 2 Volume %', 'trackRattle2VolumePercentage', 0, 500, 5)}
     ${numInput('Rattle Interval Min (ms at max speed)', 'trackRattleIntervalMin', 10, 2000)}
     ${numInput('Rattle Interval Max (ms at min speed)', 'trackRattleIntervalMax', 50, 5000)}
     ${numInput('Chain Drive Top Speed PWM', 'pwmStrokeChainDriveTopSpeed', 1, 255)}
@@ -1434,38 +1640,15 @@ function panelSounds() {
     <div class="field"><label>Sound File</label>${soundSelect('hornSound', s.hornSound)}</div>
     ${numField('Horn Volume %', 'hornVolumePercentage', 0, 500, 5)}
 
-    <div class="section-title">Siren</div>
-    <div class="field"><label>Sound File</label>${soundSelect('sirenSound', s.sirenSound)}</div>
-    ${numField('Siren Volume %', 'sirenVolumePercentage', 0, 500, 5)}
-
     <div class="section-title">Air Brake</div>
     <div class="field"><label>Sound File</label>${soundSelect('brakeSound', s.brakeSound)}</div>
     ${numField('Brake Volume %', 'brakeVolumePercentage', 0, 500, 5)}
 
-    <div class="section-title">Shifting</div>
-    <div class="field"><label>Sound File</label>${soundSelect('shiftingSound', s.shiftingSound)}</div>
-    ${numField('Shifting Volume %', 'shiftingVolumePercentage', 0, 300, 5)}
-
-    <div class="section-title">Misc Sound (door etc.)</div>
-    <div class="field"><label>Sound File</label>${soundSelect('sound1Sound', s.sound1Sound)}</div>
-    ${numField('Sound1 Volume %', 'sound1VolumePercentage', 0, 300, 5)}
-
-    <div class="section-title">Reversing Beep</div>
+    <div class="section-title">Travel Alarm (Reversing Beep)</div>
     <div class="field"><label>Sound File</label>${soundSelect('reversingSound', s.reversingSound)}</div>
-    ${numField('Reversing Volume %', 'reversingVolumePercentage', 0, 300, 5)}
-
-    <div class="section-title">Indicator</div>
-    <div class="field"><label>Sound File</label>${soundSelect('indicatorSound', s.indicatorSound)}</div>
-    ${numField('Indicator Volume %', 'indicatorVolumePercentage', 0, 300, 5)}
-    ${numInput('Indicator On (ms)', 'indicatorOn', 50, 2000)}
-    <div class="check-group">${checkbox('Indicator Direction', 'INDICATOR_DIR')}</div>
-
-    <div class="section-title">Coupling</div>
-    <div class="field"><label>Sound File</label>${soundSelect('couplingSound', s.couplingSound)}</div>
-    ${numField('Coupling Volume %', 'couplingVolumePercentage', 0, 300, 5)}
-
-    <div class="section-title">Uncoupling</div>
-    <div class="field"><label>Sound File</label>${soundSelect('uncouplingSound', s.uncouplingSound)}</div>
+    ${numField('Alarm Volume %', 'reversingVolumePercentage', 0, 300, 5)}
+    <div class="check-group">${checkbox('Alarm in both directions (fwd + rev)', 'travelAlarmBothDirections')}</div>
+    <p class="hint">When enabled, the travel alarm beeps whenever the machine is moving in any direction. When disabled, it only beeps in reverse.</p>
   </div>`;
 }
 
@@ -1499,23 +1682,11 @@ function panelESC() {
     <div class="section-title">Hi/Lo Range (2-Speed / Rabbit Mode)</div>
     <div class="check-group">
       ${checkbox('Enable Hi/Lo Range', 'hiLoEnabled')}
-      ${checkbox('Default to High Range', 'hiLoDefaultHigh')}
     </div>
     ${numField('Low Range Speed % (of full)', 'hiLoRatioPercent', 10, 100, 5)}
     <p class="hint">CH6 toggle switches between High and Low range. Low range limits top speed to the percentage above. Great for fine jobsite maneuvering.</p>
-    <div class="section-title">ESC Ramp Times (ms per step)</div>
-    ${numField('1st Gear Ramp', 'escRampTimeFirstGear', 1, 100, 1)}
-    ${numField('2nd Gear Ramp', 'escRampTimeSecondGear', 1, 150, 1)}
-    ${numField('3rd Gear Ramp', 'escRampTimeThirdGear', 1, 200, 1)}
     <div class="section-title">ESC Response</div>
-    ${numField('Brake Steps', 'escBrakeSteps', 1, 100, 1)}
     ${numField('Acceleration Steps', 'escAccelerationSteps', 1, 20, 1)}
-    <div class="section-title">Transmission</div>
-    <div class="check-group">
-      ${checkbox('Automatic', 'automatic')}
-      ${checkbox('Double Clutch', 'doubleClutch')}
-      ${checkbox('Shifting Auto Throttle', 'shiftingAutoThrottle')}
-    </div>
   </div>`;
 }
 
@@ -1574,37 +1745,6 @@ function panelServos() {
     </div>
     <pre id="pushLog" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;font-size:11px;color:var(--text);max-height:200px;overflow-y:auto;margin-top:6px;white-space:pre-wrap;"></pre>
 
-    <div class="section-title">&#127911; Live Tuning &mdash; <span style="color:var(--dim);font-weight:400;text-transform:none;font-size:11px">Runtime-configurable (pushed via serial)</span></div>
-    <p class="hint" style="margin-bottom:10px;">Adjust volumes, engine response, and ESC tuning. Push to ESP32 to apply instantly.</p>
-
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 24px;margin-bottom:16px;">
-      <div>
-        <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;margin-bottom:6px;">Engine</div>
-        ${liveSlider('masterVolume', 'Master Volume', 0, 200, '%')}
-        ${liveSlider('idleVolumePercentage', 'Idle Volume', 0, 300, '%')}
-        ${liveSlider('dieselKnockVolumePercentage', 'Diesel Knock', 0, 1000, '%')}
-        ${liveSlider('turboVolumePercentage', 'Turbo Whistle', 0, 300, '%')}
-        ${liveSlider('startVolumePercentage', 'Start Sound', 0, 300, '%')}
-        ${liveSlider('acc', 'Acceleration (inertia)', 1, 9, '')}
-        ${liveSlider('dec', 'Deceleration (inertia)', 1, 9, '')}
-        ${liveToggle('autoEngineStart', 'Auto Engine Start', 'Engine starts on throttle (no switch needed)')}
-      </div>
-      <div>
-        <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;margin-bottom:6px;">Sounds &amp; ESC</div>
-        ${liveSlider('hornVolumePercentage', 'Horn', 0, 300, '%')}
-        ${liveSlider('brakeVolumePercentage', 'Air Brake', 0, 300, '%')}
-        ${liveSlider('reversingVolumePercentage', 'Reversing Beep', 0, 300, '%')}
-        ${liveSlider('hydraulicPumpVolumePercentage', 'Hyd. Pump', 0, 300, '%')}
-        ${liveSlider('hydraulicFlowVolumePercentage', 'Hyd. Flow', 0, 300, '%')}
-        ${liveSlider('trackRattleVolumePercentage', 'Track Rattle', 0, 300, '%')}
-        ${liveSlider('bucketRattleVolumePercentage', 'Bucket Rattle', 0, 300, '%')}
-        ${liveSlider('escRampTimeLow', 'ESC Ramp (Low)', 5, 200, 'ms')}
-        ${liveSlider('escRampTimeHigh', 'ESC Ramp (High)', 5, 200, 'ms')}
-        ${liveSlider('escBrakeSteps', 'Brake Steps', 1, 100, '')}
-        ${liveSlider('escAccelerationSteps', 'Accel Steps', 1, 20, '')}
-      </div>
-    </div>
-
     <div class="section-title">Servo Endpoints (&micro;s)</div>
     <div class="servo-grid">
       <div class="hdr"></div>${[0,1,2,3,4].map(i=>`<div class="hdr ch-hdr">${labels[i] || 'CH'+(i+1)}</div>`).join('')}
@@ -1617,12 +1757,27 @@ function panelServos() {
 
 function panelBuild() {
   return `<div class="panel" id="p-build">
+    <div class="section-title">&#9881; Build &amp; Flash</div>
     <div style="display:flex; gap:8px; margin-bottom:12px; align-items:center">
       <button class="btn btn-primary btn-sm" onclick="startBuild(false)">&#9881; Build</button>
       <button class="btn btn-primary btn-sm" onclick="startBuild(true)">&#9889; Build &amp; Flash</button>
       <span id="buildStatus"></span>
     </div>
     <div id="buildOutput">Click Build to compile firmware...</div>
+
+    <div class="section-title" style="margin-top:20px;">&#128296; Debug Output</div>
+    <p class="hint" style="margin-bottom:8px;">Enable serial debug streams for troubleshooting.</p>
+    <div class="check-group">
+      ${checkbox('RC Channels', 'debugRc')}
+      ${checkbox('ESC State', 'debugEsc')}
+      ${checkbox('Sound Stats', 'debugSound')}
+      ${checkbox('Hydraulic', 'debugHydraulic')}
+    </div>
+
+    <div class="section-title" style="margin-top:20px;">&#128269; Config Dump</div>
+    <p class="hint" style="margin-bottom:8px;">Current in-memory configuration (useful for debugging). Click to refresh.</p>
+    <button class="btn btn-ghost btn-sm" onclick="document.getElementById('cfgDump').textContent=JSON.stringify(CFG,null,2)" style="margin-bottom:6px;">&#8635; Refresh Config Dump</button>
+    <pre id="cfgDump" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;font-size:11px;color:var(--text);max-height:400px;overflow-y:auto;white-space:pre-wrap;">(click Refresh to load)</pre>
   </div>`;
 }
 
@@ -2254,10 +2409,6 @@ function panelSoundTech() {
   const catOpts = cats.map(c => `<option value="${c}">${c==='all'?'All Categories':c}</option>`).join('');
 
   return `<div class="panel" id="p-soundtech">
-      '<option value="">(use compiled default)</option>' + opts + '</select></td></tr>';
-  }).join('');
-
-  return `<div class="panel" id="p-soundtech">
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
       <!-- Sound Browser (left) -->
       <div>
@@ -2386,6 +2537,37 @@ function panelSoundTech() {
       </div>
     </div>
 
+    <div class="section-title" style="margin-top:20px;">&#127911; Live Tuning &mdash; <span style="color:var(--dim);font-weight:400;text-transform:none;font-size:11px">Runtime-configurable (pushed via serial)</span></div>
+    <p class="hint" style="margin-bottom:10px;">Adjust volumes, engine response, and ESC tuning. Push to ESP32 to apply instantly.</p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 24px;margin-bottom:16px;">
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;margin-bottom:6px;">Engine</div>
+        ${liveSlider('masterVolume', 'Master Volume', 0, 200, '%')}
+        ${liveSlider('idleVolumePercentage', 'Idle Volume', 0, 300, '%')}
+        ${liveSlider('dieselKnockVolumePercentage', 'Diesel Knock', 0, 1000, '%')}
+        ${liveSlider('turboVolumePercentage', 'Turbo Whistle', 0, 300, '%')}
+        ${liveSlider('startVolumePercentage', 'Start Sound', 0, 300, '%')}
+        ${liveSlider('acc', 'Acceleration (inertia)', 1, 9, '')}
+        ${liveSlider('dec', 'Deceleration (inertia)', 1, 9, '')}
+        ${liveToggle('autoEngineStart', 'Auto Engine Start', 'Engine starts on throttle (no switch needed)')}
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;margin-bottom:6px;">Sounds &amp; ESC</div>
+        ${liveSlider('hornVolumePercentage', 'Horn', 0, 300, '%')}
+        ${liveSlider('brakeVolumePercentage', 'Air Brake', 0, 300, '%')}
+        ${liveSlider('reversingVolumePercentage', 'Reversing Beep', 0, 300, '%')}
+        ${liveSlider('hydraulicPumpVolumePercentage', 'Hyd. Pump', 0, 300, '%')}
+        ${liveSlider('hydraulicFlowVolumePercentage', 'Hyd. Flow', 0, 300, '%')}
+        ${liveSlider('trackRattleVolumePercentage', 'Track Rattle', 0, 300, '%')}
+        ${liveSlider('bucketRattleVolumePercentage', 'Bucket Rattle', 0, 300, '%')}
+        ${liveSlider('escRampTimeLow', 'ESC Ramp (Low)', 5, 200, 'ms')}
+        ${liveSlider('escRampTimeHigh', 'ESC Ramp (High)', 5, 200, 'ms')}
+        ${liveSlider('escBrakeSteps', 'Brake Steps', 1, 100, '')}
+        ${liveSlider('escAccelerationSteps', 'Accel Steps', 1, 20, '')}
+      </div>
+    </div>
+
     <style>
       .st-playing { outline:2px solid var(--accent) !important; animation:pulse 1s infinite; }
       #p-soundtech table tr:hover td { background:rgba(255,203,5,0.05); }
@@ -2473,23 +2655,185 @@ async function pushChannels() {
 }
 
 // ── Save ────────────────────────────────────────
-async function saveConfig() {
+let _currentVehicle = null;  // name of currently loaded vehicle profile
+let _vehicleList = [];       // cached list of saved vehicle names
+
+function _gatherCfg() {
   CFG.sounds = CFG.sounds || {};
   document.querySelectorAll('[data-sound]').forEach(sel => {
     CFG.sounds[sel.dataset.sound] = sel.value;
   });
+  return CFG;
+}
+
+async function saveConfig() {
+  _gatherCfg();
+  // First save ever (no vehicle loaded) → prompt for a name
+  if (!_currentVehicle) {
+    const name = prompt('Save as new vehicle profile:', CFG.customMachineName || MACHINE_NAMES[CFG.machineType] || 'My Vehicle');
+    if (!name) return;
+    await _saveVehicleProfile(name);
+    return;
+  }
+  // Already have a vehicle loaded → overwrite it + write config.h
   const resp = await fetch('/api/save', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify(CFG)
   });
   const data = await resp.json();
-  toast(data.ok ? 'Config saved!' : ('Error: ' + data.error), data.ok);
+  // Also update the vehicle profile JSON
+  await fetch('/api/vehicle/save', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ name: _currentVehicle, config: CFG })
+  });
+  toast(data.ok ? ('Saved — ' + _currentVehicle) : ('Error: ' + data.error), data.ok);
+  _refreshVehicleList();
+}
+
+async function _saveVehicleProfile(name) {
+  // Write config.h
+  const resp = await fetch('/api/save', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(CFG)
+  });
+  const data = await resp.json();
+  if (!data.ok) { toast('Error: ' + data.error, false); return; }
+  // Save vehicle profile JSON
+  const resp2 = await fetch('/api/vehicle/save', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ name: name, config: CFG })
+  });
+  const data2 = await resp2.json();
+  if (data2.ok) {
+    _currentVehicle = data2.name;
+    toast('Saved new vehicle: ' + data2.name, true);
+    _refreshVehicleList();
+  } else {
+    toast('Error: ' + data2.error, false);
+  }
+}
+
+async function saveAsNewVehicle() {
+  _gatherCfg();
+  const name = prompt('Save as new vehicle profile:', CFG.customMachineName || MACHINE_NAMES[CFG.machineType] || 'My Vehicle');
+  if (!name) return;
+  await _saveVehicleProfile(name);
+}
+
+async function loadVehicle(name) {
+  if (!name) return;
+  try {
+    const resp = await fetch('/api/vehicle/load', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name: name })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      soundFiles = data.config.soundFiles || soundFiles;
+      delete data.config.soundFiles;
+      CFG = data.config;
+      _currentVehicle = name;
+      renderPanels();
+      updateMachineName();
+      activateTab('machine');
+      toast('Loaded: ' + name, true);
+      _refreshVehicleList();
+    } else {
+      toast('Error: ' + data.error, false);
+    }
+  } catch(e) { toast('Load error: ' + e, false); }
+}
+
+async function deleteVehicle(name) {
+  if (!name) return;
+  if (!confirm('Delete vehicle profile "' + name + '"?')) return;
+  const resp = await fetch('/api/vehicle/delete', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ name: name })
+  });
+  const data = await resp.json();
+  if (data.ok) {
+    if (_currentVehicle === name) _currentVehicle = null;
+    toast('Deleted: ' + name, true);
+    _refreshVehicleList();
+  } else {
+    toast('Delete error: ' + data.error, false);
+  }
+}
+
+function exportVehicle() {
+  _gatherCfg();
+  const name = _currentVehicle || CFG.customMachineName || MACHINE_NAMES[CFG.machineType] || 'vehicle';
+  const blob = new Blob([JSON.stringify(CFG, null, 2)], {type: 'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name + '.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Exported: ' + name + '.json', true);
+}
+
+async function importVehicle(input) {
+  const file = input.files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const cfg = JSON.parse(text);
+    const name = file.name.replace(/\.json$/i, '');
+    const resp = await fetch('/api/vehicle/save', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name: name, config: cfg })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      toast('Imported: ' + data.name + ' — click Load to apply', true);
+      _refreshVehicleList();
+    } else {
+      toast('Import error: ' + data.error, false);
+    }
+  } catch(e) { toast('Import error: ' + e, false); }
+  input.value = '';
+}
+
+async function _refreshVehicleList() {
+  try {
+    const resp = await fetch('/api/vehicles');
+    const data = await resp.json();
+    if (data.ok) {
+      _vehicleList = data.vehicles;
+      _currentVehicle = data.current;
+    }
+  } catch(e) {}
+  // Update the vehicle list UI if visible
+  const el = document.getElementById('vehicleListBody');
+  if (el) el.innerHTML = _vehicleListRows();
+  const cur = document.getElementById('currentVehicleName');
+  if (cur) cur.textContent = _currentVehicle || '(unsaved)';
+}
+
+function _vehicleListRows() {
+  if (!_vehicleList.length) return '<tr><td colspan="2" style="padding:8px;color:var(--dim);font-style:italic;">No saved vehicles yet</td></tr>';
+  return _vehicleList.map(v => {
+    const isCurrent = v === _currentVehicle;
+    return '<tr style="border-bottom:1px solid var(--border);">' +
+      '<td style="padding:6px 8px;font-size:13px;color:var(--text);">' +
+        (isCurrent ? '<span style="color:var(--accent);">&#9654; </span>' : '') + v + '</td>' +
+      '<td style="padding:6px 8px;text-align:right;white-space:nowrap;">' +
+        '<button class="btn btn-sm" onclick="loadVehicle(\'' + v.replace(/'/g,"\\'") + '\')" style="font-size:11px;padding:2px 8px;margin-right:4px;">Load</button>' +
+        '<button class="btn btn-sm" onclick="deleteVehicle(\'' + v.replace(/'/g,"\\'") + '\')" style="font-size:11px;padding:2px 8px;color:var(--danger);">&#128465;</button>' +
+      '</td></tr>';
+  }).join('');
 }
 
 // ── Build ───────────────────────────────────────
 let buildPoll = null;
 async function startBuild(upload) {
-  await saveConfig();
+  // Always write config.h before building (skip vehicle prompt)
+  _gatherCfg();
+  await fetch('/api/save', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(CFG)
+  });
   const url = upload ? '/api/upload' : '/api/build';
   await fetch(url, {method:'POST'});
   toast(upload ? 'Build & flash started...' : 'Build started...', true);
@@ -2542,7 +2886,9 @@ def main():
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args()
 
-    server = http.server.HTTPServer(("0.0.0.0", args.port), Handler)
+    class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+        daemon_threads = True
+    server = ThreadedHTTPServer(("0.0.0.0", args.port), Handler)
     url = f"http://localhost:{args.port}"
     print(f"HydraulicController Configurator running at {url}")
     print("Press Ctrl+C to stop.")

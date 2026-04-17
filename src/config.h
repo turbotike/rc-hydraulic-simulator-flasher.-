@@ -17,18 +17,18 @@
 // CHANNEL MAPPING — defaults (overridden at runtime from NVS if saved)
 // Change via web UI → "Push to ESP32" — no rebuild needed!
 // ============================================================================
-uint8_t CH_THROTTLE      = 3;   // Throttle stick (fwd/rev or fwd-only depending on mode)
-uint8_t CH_HORN          = 4;   // Horn trigger (>1800µs = ON)
-uint8_t CH_ENGINE_TOGGLE = 5;   // Engine on/off toggle (rising edge >1700µs)
-uint8_t CH_HILO_TOGGLE   = 6;   // Hi/Lo range toggle (rising edge >1700µs)
+uint8_t CH_THROTTLE      = 5;   // Throttle stick (fwd/rev or fwd-only depending on mode)
+uint8_t CH_HORN          = 8;   // Horn trigger (>1800µs = ON)
+uint8_t CH_ENGINE_TOGGLE = 0;   // Engine on/off toggle (rising edge >1700µs)
+uint8_t CH_HILO_TOGGLE   = 7;   // Hi/Lo range toggle (rising edge >1700µs)
 
 // --- Excavator channels ---
-uint8_t CH_EX_BUCKET   = 1;   // Bucket curl/dump
-uint8_t CH_EX_SWING    = 2;   // Cab swing
-uint8_t CH_EX_BOOM     = 5;   // Boom up/down
-uint8_t CH_EX_STICK    = 6;   // Stick/dipper in/out
-uint8_t CH_EX_TRACK_L  = 7;   // Left track
-uint8_t CH_EX_TRACK_R  = 8;   // Right track
+uint8_t CH_EX_TRACK_R  = 1;   // Right track
+uint8_t CH_EX_TRACK_L  = 2;   // Left track
+uint8_t CH_EX_BOOM     = 3;   // Boom up/down
+uint8_t CH_EX_STICK    = 4;   // Arm (stick/dipper) in/out
+uint8_t CH_EX_BUCKET   = 5;   // Bucket curl/dump
+uint8_t CH_EX_SWING    = 6;   // Cab swing
 
 // --- Loader channels ---
 uint8_t CH_LD_BUCKET   = 1;   // Bucket tilt
@@ -40,9 +40,13 @@ uint8_t CH_CR_EXTEND   = 2;   // Boom extend/retract
 uint8_t CH_CR_SWING    = 8;   // Cab swing
 
 // --- Dozer channels ---
-uint8_t CH_DZ_BLADE    = 1;   // Blade lift (up/down)
-uint8_t CH_DZ_TILT     = 7;   // Blade tilt (left/right — S-blade or SU-blade)
-uint8_t CH_DZ_RIPPER   = 2;   // Ripper up/down
+uint8_t CH_DZ_TRACK_R  = 1;   // Right track
+uint8_t CH_DZ_TRACK_L  = 2;   // Left track
+uint8_t CH_DZ_BLADE    = 3;   // Blade lift (up/down)
+uint8_t CH_DZ_RIPPER   = 4;   // Ripper up/down
+uint8_t CH_DZ_TILT     = 0;   // Blade tilt (left/right — S-blade or SU-blade)
+uint8_t CH_DZ_ANGLE    = 0;   // Blade angle (angling the moldboard)
+uint8_t CH_DZ_RIPPER_TILT = 0; // Ripper tilt
 
 // --- Grader channels ---
 uint8_t CH_GR_BLADE    = 1;   // Blade lift (raise/lower moldboard)
@@ -55,7 +59,7 @@ uint8_t CH_SS_BUCKET   = 1;   // Bucket curl/dump
 uint8_t CH_SS_BOOM     = 2;   // Boom up/down
 
 // --- Lights channel ---
-uint8_t CH_LIGHTS      = 5;   // Lights toggle (long press >1700µs cycles states)
+uint8_t CH_LIGHTS      = 6;   // Lights toggle (long press >1700µs cycles states)
 
 // ============================================================================
 // CHANNEL REVERSE — per-channel inversion (overridden from NVS if saved)
@@ -154,13 +158,21 @@ uint32_t sbusBaud = 100000;     // Standard 100000. Some receivers need 163863
 
 // --- Start sound ---
 volatile int startVolumePercentage = 140;
-#include "sounds/Caterpillar323Start.h"
+#include "sounds/startup.h"
+// Alias: auto-generated variable mapping
+const signed char* startSamples = startup;
+const unsigned int startSampleCount = startup_sampleCount;
+const unsigned int startSampleRate = startup_sampleRate;
 
 // --- Idle sound ---
 volatile int idleVolumePercentage = 80;
 volatile int engineIdleVolumePercentage = 80;
 volatile int fullThrottleVolumePercentage = 140;
-#include "sounds/Caterpillar323Idle.h"
+#include "sounds/idle.h"
+// Alias: auto-generated variable mapping
+const signed char* samples = idle;
+const unsigned int sampleCount = idle_sampleCount;
+const unsigned int sampleRate = idle_sampleRate;
 
 // --- Rev sound ---
 #define REV_SOUND
@@ -170,7 +182,11 @@ volatile const uint16_t revSwitchPoint = 100;
 volatile const uint16_t idleEndPoint = 400;
 volatile const uint16_t idleVolumeProportionPercentage = 90;
 #ifdef REV_SOUND
-#include "sounds/Caterpillar323Rev.h"
+#include "sounds/idle.h"
+// Alias: auto-generated variable mapping
+const signed char* revSamples = idle;
+const unsigned int revSampleCount = idle_sampleCount;
+const unsigned int revSampleRate = idle_sampleRate;
 #endif
 
 // --- Diesel knock ---
@@ -182,8 +198,8 @@ volatile int dieselKnockAdaptiveVolumePercentage = 50;
 #include "sounds/Caterpillar323Knock.h"
 
 // --- Turbo ---
-volatile int turboVolumePercentage = 15;
-volatile int turboIdleVolumePercentage = 0;
+volatile int turboVolumePercentage = 35;
+volatile int turboIdleVolumePercentage = 20;
 #include "sounds/TurboWhistle.h"
 
 // --- Supercharger (set to 0 to disable) ---
@@ -225,8 +241,9 @@ volatile int shiftingVolumePercentage = 100;
 volatile int sound1VolumePercentage = 100;
 #include "sounds/door.h"
 
-// --- Reversing beep ---
+// --- Travel Alarm (Reversing beep) ---
 volatile int reversingVolumePercentage = 70;
+const boolean travelAlarmBothDirections = false; // true = beep in fwd + rev
 #include "sounds/TruckReversingBeep.h"
 
 // --- Indicator tick ---
@@ -257,7 +274,11 @@ volatile int hydraulicFlowVolumePercentage = 120;
 
 // --- Track rattle ---
 volatile int trackRattleVolumePercentage = 150;
-#include "sounds/Caterpillar323TrackRattle.h"
+#include "sounds/tracrattle.h"
+// Alias: auto-generated variable mapping
+const signed char* trackRattleSamples = tracrattle;
+const unsigned int trackRattleSampleCount = tracrattle_sampleCount;
+const unsigned int trackRattleSampleRate = tracrattle_sampleRate;
 
 // --- Track rattle 2 (periodic clank, for tracked machines) ---
 // #define TRACK_RATTLE_2
