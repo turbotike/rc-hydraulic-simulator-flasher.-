@@ -1,3 +1,4 @@
+#pragma once
 const unsigned int fanSampleRate = 22050;
 const unsigned int fanSampleCount = 9130;
 const signed char fanSamples[] = {

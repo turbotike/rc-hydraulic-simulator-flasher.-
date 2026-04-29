@@ -1,3 +1,4 @@
+#pragma once
 const unsigned int turboSampleRate = 22050;
 const unsigned int turboSampleCount = 3435;
 const signed char turboSamples[] = {

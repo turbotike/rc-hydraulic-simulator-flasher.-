@@ -1,3 +1,4 @@
+#pragma once
 const unsigned int hydraulicPumpSampleRate = 22050;
 const unsigned int hydraulicPumpSampleCount = 1449;
 const signed char hydraulicPumpSamples[] = {//0

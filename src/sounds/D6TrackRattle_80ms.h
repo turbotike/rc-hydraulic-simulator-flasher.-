@@ -1,3 +1,4 @@
+#pragma once
 const unsigned int trackRattle2SampleRate = 22050;
 const unsigned int trackRattle2SampleCount = 1699;
 const signed char trackRattle2Samples[] = {//0

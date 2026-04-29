@@ -1,3 +1,4 @@
+#pragma once
 const unsigned int knockSampleRate = 22050;
 const unsigned int knockSampleCount = 203;
 const signed char knockSamples[] = {//0

@@ -117,7 +117,8 @@ SLOT_EXPECTED_VARS = {
     "uncouplingSound":     ("uncouplingSamples",    "uncouplingSampleCount",    "uncouplingSampleRate"),
     "hydraulicPumpSound":  ("hydraulicPumpSamples", "hydraulicPumpSampleCount", "hydraulicPumpSampleRate"),
     "hydraulicFlowSound":  ("hydraulicFlowSamples", "hydraulicFlowSampleCount", "hydraulicFlowSampleRate"),
-    "trackRattleSound":    ("trackRattleSamples",   "trackRattleSampleCount",   "trackRattleSampleRate"),
+    "trackRattleSound":    ("trackRattleSamples",    "trackRattleSampleCount",    "trackRattleSampleRate"),
+    "trackRattle2Sound":   ("trackRattle2Samples",   "trackRattle2SampleCount",   "trackRattle2SampleRate"),
     "bucketRattleSound":   ("bucketRattleSamples",  "bucketRattleSampleCount",  "bucketRattleSampleRate"),
 }
 
@@ -235,11 +236,11 @@ def read_config():
         "shiftingSound": None, "sound1Sound": None, "reversingSound": None, "indicatorSound": None,
         "couplingSound": None, "uncouplingSound": None,
         "hydraulicPumpSound": None, "hydraulicFlowSound": None,
-        "trackRattleSound": None, "bucketRattleSound": None,
+        "trackRattleSound": None, "trackRattle2Sound": None, "bucketRattleSound": None,
     }
 
     # Parse includes in order — map by the variable that precedes them
-    include_pat = re.compile(r'#include\s+"sounds/([^"]+)"')
+    include_pat = re.compile(r'(?://\s*)?#include\s+"sounds/([^"]+)"')
     lines = text.split('\n')
     slot_map = {
         "startVolumePercentage": "startSound",
@@ -262,6 +263,7 @@ def read_config():
         "hydraulicPumpVolumePercentage": "hydraulicPumpSound",
         "hydraulicFlowVolumePercentage": "hydraulicFlowSound",
         "trackRattleVolumePercentage": "trackRattleSound",
+        "trackRattle2VolumePercentage": "trackRattle2Sound",
         "bucketRattleVolumePercentage": "bucketRattleSound",
     }
 
@@ -277,6 +279,35 @@ def read_config():
                 current_slot = "uncouplingSound"  # next include is uncoupling
             else:
                 current_slot = None
+
+    # Pick up any slots from previous "Auto-injected" fixup blocks so we don't
+    # lose track on round-trip
+    for slot in sound_slots:
+        if sound_slots[slot] is None:
+            inj = re.search(
+                r'// Auto-injected for ' + re.escape(slot) + r' \(was missing\).*?\n#include\s+"sounds/([^"]+)"',
+                text, re.DOTALL)
+            if inj:
+                sound_slots[slot] = inj.group(1)
+            else:
+                # No #include in the auto-injected block, but the alias points to a
+                # variable from another file that's already included. Detect via alias.
+                exp = SLOT_EXPECTED_VARS.get(slot)
+                if exp:
+                    exp_arr = exp[0]
+                    am = re.search(
+                        r'const\s+signed\s+char\*\s+' + re.escape(exp_arr) + r'\s*=\s*(\w+)\s*;',
+                        text)
+                    if am:
+                        # Find which sound file declares that base var
+                        base_var = am.group(1)
+                        for fn in os.listdir(SOUNDS_DIR):
+                            if not fn.endswith('.h'):
+                                continue
+                            arr_name, _, _ = detect_sound_vars(os.path.join(SOUNDS_DIR, fn))
+                            if arr_name == base_var:
+                                sound_slots[slot] = fn
+                                break
 
     cfg["sounds"] = sound_slots
 
@@ -310,6 +341,13 @@ def write_config(cfg):
     """Write settings back to config.h."""
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         text = f.read()
+
+    # Strip ALL previous auto-injected blocks before regenerating, so we don't
+    # accumulate duplicates across saves. A block is the comment line plus all
+    # following alias / include lines until the next blank line.
+    text = re.sub(
+        r'^// Auto-injected for \w+ \(was missing\)[^\n]*\n(?:(?:#include[^\n]*|const[^\n]*)\n)*',
+        '', text, flags=re.MULTILINE)
 
     # Machine type
     machine_modes = ["EXCAVATOR_MODE", "LOADER_MODE", "CRANE_MODE", "DOZER_MODE", "SKIDSTEER_MODE", "GRADER_MODE"]
@@ -443,7 +481,7 @@ def write_config(cfg):
 
     # Sound file swaps
     sounds = cfg.get("sounds", {})
-    include_pat = re.compile(r'(#include\s+"sounds/)([^"]+)(")')
+    include_pat = re.compile(r'((?://\s*)?#include\s+"sounds/)([^"]+)(")')
     slot_map_rev = {}
     for var, slot in {
         "startVolumePercentage": "startSound",
@@ -466,19 +504,134 @@ def write_config(cfg):
         "hydraulicPumpVolumePercentage": "hydraulicPumpSound",
         "hydraulicFlowVolumePercentage": "hydraulicFlowSound",
         "trackRattleVolumePercentage": "trackRattleSound",
+        "trackRattle2VolumePercentage": "trackRattle2Sound",
         "bucketRattleVolumePercentage": "bucketRattleSound",
     }.items():
         slot_map_rev[slot] = var
 
     # Replace includes line by line, tracking which slot we're in
-    # Also strip old alias lines (generated by previous saves) and regenerate them
-    alias_line_pat = re.compile(r'^(?:// Alias:.*|const\s+(?:signed\s+char\*|unsigned\s+int)\s+\w+\s*=\s*\w+;)$')
+    # Also strip old alias lines (generated by previous saves) and regenerate them.
+    # We also track which sample variables are already declared (either by an
+    # included sound file or by an earlier alias) so we never emit a redefinition.
+    alias_line_pat = re.compile(r'^(?:// Alias:.*|// (?:Already included|Skipped duplicate|Skipped: sounds/).*|const\s+(?:signed\s+char\*|unsigned\s+int)\s+\w+\s*=\s*\w+;)$')
+
+    def render_include(line, sound_file, skip):
+        """Return the include line — commented out if skip, active otherwise.
+        Strips leading `// ` if not skipping (re-enabling a previously skipped one)."""
+        # Normalize: ensure exactly one form. First strip any leading `//`.
+        active_line = re.sub(r'^\s*//\s*(#include)', r'\1', line)
+        active_line = re.sub(r'(#include\s+"sounds/)([^"]+)(")', r'\1' + sound_file + r'\3', active_line)
+        if skip:
+            return '// ' + active_line.lstrip()
+        return active_line
+    declared_vars = set()
+    included_files = set()
+
+    # PRE-PASS: determine the final set of #include files (after slot
+    # substitutions) and collect ALL variables those files will declare. This
+    # way the alias-generation pass knows up-front which symbols will be
+    # provided natively by an include and won't emit a colliding alias.
+    # We also detect when two DIFFERENT sound files would declare the SAME
+    # global variable (e.g. CAT730Rev.h and Caterpillar323Rev.h both declare
+    # `revSamples`). In that case we keep only the first file's #include and
+    # mark subsequent ones as "skip" — their slots will reuse the existing
+    # variables, which keeps the build green even if the audio is shared.
+    pre_lines = text.split('\n')
+    pre_slot = None
+    skip_includes = set()  # set of (line_index, filename) tuples to drop
+    pre_idx = -1
+    for line in pre_lines:
+        pre_idx += 1
+        if alias_line_pat.match(line.strip()):
+            continue
+        for var, slot in {
+            "startVolumePercentage": "startSound",
+            "idleVolumePercentage": "idleSound",
+            "revVolumePercentage": "revSound",
+            "dieselKnockVolumePercentage": "knockSound",
+            "turboVolumePercentage": "turboSound",
+            "chargerVolumePercentage": "chargerSound",
+            "wastegateVolumePercentage": "wastegateSound",
+            "fanVolumePercentage": "fanSound",
+            "hornVolumePercentage": "hornSound",
+            "sirenVolumePercentage": "sirenSound",
+            "brakeVolumePercentage": "brakeSound",
+            "parkingBrakeVolumePercentage": "parkingBrakeSound",
+            "shiftingVolumePercentage": "shiftingSound",
+            "sound1VolumePercentage": "sound1Sound",
+            "reversingVolumePercentage": "reversingSound",
+            "indicatorVolumePercentage": "indicatorSound",
+            "couplingVolumePercentage": "couplingSound",
+            "hydraulicPumpVolumePercentage": "hydraulicPumpSound",
+            "hydraulicFlowVolumePercentage": "hydraulicFlowSound",
+            "trackRattleVolumePercentage": "trackRattleSound",
+            "trackRattle2VolumePercentage": "trackRattle2Sound",
+            "bucketRattleVolumePercentage": "bucketRattleSound",
+        }.items():
+            if var in line and '=' in line:
+                pre_slot = slot
+        im = include_pat.search(line)
+        if im:
+            if pre_slot and pre_slot in sounds and sounds[pre_slot]:
+                fn = sounds[pre_slot]
+            else:
+                fn = im.group(2)
+            arr_n, cnt_n, rate_n = detect_sound_vars(os.path.join(SOUNDS_DIR, fn))
+            # Conflict with already-declared vars from a DIFFERENT file?
+            conflict = (
+                (arr_n and arr_n in declared_vars) or
+                (cnt_n and cnt_n in declared_vars) or
+                (rate_n and rate_n in declared_vars)
+            )
+            if fn in included_files:
+                # Same file referenced twice: pragma once handles it, no skip needed.
+                pass
+            elif conflict:
+                # Different file but it would redefine an existing global. Skip it.
+                skip_includes.add(pre_idx)
+            else:
+                included_files.add(fn)
+                if arr_n: declared_vars.add(arr_n)
+                if cnt_n: declared_vars.add(cnt_n)
+                if rate_n: declared_vars.add(rate_n)
+            if pre_slot == "couplingSound":
+                pre_slot = "uncouplingSound"
+            else:
+                pre_slot = None
+
+    def alias_lines_safe(slot, sound_file):
+        """Build alias lines for a slot, skipping any whose target is already declared."""
+        if slot not in SLOT_EXPECTED_VARS:
+            return []
+        exp_arr, exp_cnt, exp_rate = SLOT_EXPECTED_VARS[slot]
+        fpath = os.path.join(SOUNDS_DIR, sound_file)
+        act_arr, act_cnt, act_rate = detect_sound_vars(fpath)
+        if act_arr is None:
+            return []
+        out = []
+        # Only emit alias if the target name is NOT already declared natively
+        # by any included file (and the source name IS declared somewhere).
+        if act_arr != exp_arr and exp_arr not in declared_vars:
+            out.append(f"const signed char* {exp_arr} = {act_arr};")
+            declared_vars.add(exp_arr)
+        if act_cnt and act_cnt != exp_cnt and exp_cnt not in declared_vars:
+            out.append(f"const unsigned int {exp_cnt} = {act_cnt};")
+            declared_vars.add(exp_cnt)
+        if act_rate and act_rate != exp_rate and exp_rate not in declared_vars:
+            out.append(f"const unsigned int {exp_rate} = {act_rate};")
+            declared_vars.add(exp_rate)
+        return out
+
+    def register_include(sound_file):
+        # Already populated in pre-pass; keep no-op for compatibility
+        return
+
     new_lines = []
     current_slot = None
     slot_map_fwd = {v: k for k, v in slot_map_rev.items()}
     lines = text.split('\n')
-    for line in lines:
-        # Skip old alias lines (will be regenerated)
+    for line_idx, line in enumerate(lines):
+        # Skip old alias / dedupe-comment lines (will be regenerated)
         if alias_line_pat.match(line.strip()):
             continue
 
@@ -503,48 +656,57 @@ def write_config(cfg):
             "hydraulicPumpVolumePercentage": "hydraulicPumpSound",
             "hydraulicFlowVolumePercentage": "hydraulicFlowSound",
             "trackRattleVolumePercentage": "trackRattleSound",
+            "trackRattle2VolumePercentage": "trackRattle2Sound",
             "bucketRattleVolumePercentage": "bucketRattleSound",
         }.items():
             if var in line and '=' in line:
                 current_slot = slot
 
         im = include_pat.search(line)
+
         if im and current_slot and current_slot in sounds and sounds[current_slot]:
             sound_file = sounds[current_slot]
-            line = include_pat.sub(r'\g<1>' + sound_file + r'\3', line)
-            new_lines.append(line)
-            # Generate alias lines if variable names don't match
-            aliases = make_aliases(current_slot, sound_file)
-            if aliases:
-                new_lines.append("// Alias: auto-generated variable mapping")
-                new_lines.extend(aliases)
+            skip = line_idx in skip_includes
+            new_lines.append(render_include(line, sound_file, skip))
+            if not skip:
+                aliases = alias_lines_safe(current_slot, sound_file)
+                if aliases:
+                    new_lines.append("// Alias: auto-generated variable mapping")
+                    new_lines.extend(aliases)
             if current_slot == "couplingSound":
                 current_slot = "uncouplingSound"
             else:
                 current_slot = None
         elif im and current_slot == "uncouplingSound" and "uncouplingSound" in sounds and sounds["uncouplingSound"]:
             sound_file = sounds["uncouplingSound"]
-            line = include_pat.sub(r'\g<1>' + sound_file + r'\3', line)
-            new_lines.append(line)
-            aliases = make_aliases("uncouplingSound", sound_file)
-            if aliases:
-                new_lines.append("// Alias: auto-generated variable mapping")
-                new_lines.extend(aliases)
+            skip = line_idx in skip_includes
+            new_lines.append(render_include(line, sound_file, skip))
+            if not skip:
+                aliases = alias_lines_safe("uncouplingSound", sound_file)
+                if aliases:
+                    new_lines.append("// Alias: auto-generated variable mapping")
+                    new_lines.extend(aliases)
             current_slot = None
         elif im and current_slot:
-            # No sound override for this slot — still generate aliases for current file
             sound_file = im.group(2)
-            new_lines.append(line)
-            aliases = make_aliases(current_slot, sound_file)
-            if aliases:
-                new_lines.append("// Alias: auto-generated variable mapping")
-                new_lines.extend(aliases)
+            skip = line_idx in skip_includes
+            new_lines.append(render_include(line, sound_file, skip))
+            if not skip:
+                aliases = alias_lines_safe(current_slot, sound_file)
+                if aliases:
+                    new_lines.append("// Alias: auto-generated variable mapping")
+                    new_lines.extend(aliases)
             if current_slot == "couplingSound":
                 current_slot = "uncouplingSound"
             else:
                 current_slot = None
         else:
-            new_lines.append(line)
+            if im:
+                sound_file = im.group(2)
+                skip = line_idx in skip_includes
+                new_lines.append(render_include(line, sound_file, skip))
+            else:
+                new_lines.append(line)
 
     text = '\n'.join(new_lines)
 
@@ -578,6 +740,42 @@ def write_config(cfg):
                 r'\g<1>' + vals + r'\2',
                 text
             )
+
+    # Fix-up pass: if any slot's expected variables aren't declared yet
+    # (e.g. include line was lost in a previous bad save), alias them to the
+    # idle sound's variables. We deliberately DO NOT inject a new #include
+    # because that can cause namespace conflicts with other slots aliasing
+    # variables from that same file. The idle sound is always present.
+    fixup_lines = []
+    for slot in sounds:
+        if slot not in SLOT_EXPECTED_VARS or slot == "idleSound":
+            continue
+        exp_arr, exp_cnt, exp_rate = SLOT_EXPECTED_VARS[slot]
+        # Already declared (by an include or by an emitted alias)?
+        if exp_arr in declared_vars:
+            continue
+        fixup_lines.append(f'// Auto-injected for {slot} (was missing) — using idle sound')
+        fixup_lines.append(f'const signed char* {exp_arr} = samples;')
+        fixup_lines.append(f'const unsigned int {exp_cnt} = sampleCount;')
+        fixup_lines.append(f'const unsigned int {exp_rate} = sampleRate;')
+        fixup_lines.append('')
+        declared_vars.add(exp_arr)
+        declared_vars.add(exp_cnt)
+        declared_vars.add(exp_rate)
+    if fixup_lines:
+        # Insert before the "RC SIGNAL TUNING" section header (or before MASTER VOLUME)
+        marker = re.search(r'^//\s*=+\s*\n//\s*RC SIGNAL TUNING', text, re.MULTILINE)
+        if not marker:
+            marker = re.search(r'^//\s*=+\s*\n//\s*MASTER VOLUME', text, re.MULTILINE)
+        injection = '\n'.join(fixup_lines) + '\n'
+        if marker:
+            text = text[:marker.start()] + injection + text[marker.start():]
+        else:
+            rt_marker = re.search(r'^//\s*=+\s*\n//\s*RUNTIME SOUND INDIRECTION', text, re.MULTILINE)
+            if rt_marker:
+                text = text[:rt_marker.start()] + injection + text[rt_marker.start():]
+            else:
+                text += '\n' + injection
 
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         f.write(text)
@@ -1674,6 +1872,10 @@ function panelSounds() {
     ${numInput('Rattle Interval Max (ms at min speed)', 'trackRattleIntervalMax', 50, 5000)}
     ${numInput('Chain Drive Top Speed PWM', 'pwmStrokeChainDriveTopSpeed', 1, 255)}
     ${numInput('Chain Drive Start Rotation', 'pwmStrokeChainDriveStartRotation', 0, 255)}
+
+    <div class="section-title">Track Rattle 2</div>
+    <div class="field"><label>Sound File</label>${soundSelect('trackRattle2Sound', s.trackRattle2Sound)}</div>
+    ${numField('Track Rattle 2 Volume %', 'trackRattle2VolumePercentage', 0, 500, 5)}
 
     <div class="section-title">Bucket Rattle</div>
     <div class="field"><label>Sound File</label>${soundSelect('bucketRattleSound', s.bucketRattleSound)}</div>

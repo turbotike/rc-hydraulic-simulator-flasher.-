@@ -1,3 +1,4 @@
+#pragma once
 const unsigned int wastegateSampleRate = 22050;
 const unsigned int wastegateSampleCount = 19576;
 const signed char wastegateSamples[] = {

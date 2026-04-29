@@ -1,3 +1,4 @@
+#pragma once
 // This file must start and end @ -128
 const unsigned int reversingSampleRate = 22050;
 const unsigned int reversingSampleCount = 22049;

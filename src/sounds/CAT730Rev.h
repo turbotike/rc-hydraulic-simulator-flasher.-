@@ -1,3 +1,4 @@
+#pragma once
 const unsigned int revSampleRate = 22050;
 const unsigned int revSampleCount = 3259;
 const signed char revSamples[] = {//0

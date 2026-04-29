@@ -1,3 +1,4 @@
+#pragma once
 const unsigned int hornSampleRate = 22050;
 const unsigned int hornSampleCount = 13513;
 #define HORN_LOOP

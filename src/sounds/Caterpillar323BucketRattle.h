@@ -1,3 +1,4 @@
+#pragma once
 const unsigned int bucketRattleSampleRate = 22050;
 const unsigned int bucketRattleSampleCount = 11255;
 const signed char bucketRattleSamples[] = {//0

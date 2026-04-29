@@ -1,3 +1,4 @@
+#pragma once
 const unsigned int couplingSampleRate = 22050;
 const unsigned int couplingSampleCount = 16927;
 const signed char couplingSamples[] = {//0

@@ -1,3 +1,4 @@
+#pragma once
 const unsigned int chargerSampleRate = 22050;
 const unsigned int chargerSampleCount = 562;
 const signed char chargerSamples[] = {

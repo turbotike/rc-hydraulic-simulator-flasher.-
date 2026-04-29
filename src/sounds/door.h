@@ -1,3 +1,4 @@
+#pragma once
 const unsigned int sound1SampleRate = 22050;
 const unsigned int sound1SampleCount = 42484;
 const signed char sound1Samples[] = {

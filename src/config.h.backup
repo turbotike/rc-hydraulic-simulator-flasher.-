@@ -295,11 +295,6 @@ uint16_t trackRattleIntervalMax = 305;  // ms at min speed
 volatile int bucketRattleVolumePercentage = 160;
 #include "sounds/Caterpillar323BucketRattle.h"
 
-// Auto-injected for parkingBrakeSound (was missing) — using idle sound
-const signed char* parkingBrakeSamples = samples;
-const unsigned int parkingBrakeSampleCount = sampleCount;
-const unsigned int parkingBrakeSampleRate = sampleRate;
-
 // ============================================================================
 // RC SIGNAL TUNING
 // ============================================================================

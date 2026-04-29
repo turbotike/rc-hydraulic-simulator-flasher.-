@@ -1,3 +1,4 @@
+#pragma once
 const unsigned int uncouplingSampleRate = 22050;
 const unsigned int uncouplingSampleCount = 21563;
 const signed char uncouplingSamples[] = {//0

@@ -1,3 +1,4 @@
+#pragma once
 const unsigned int indicatorSampleRate = 22050;
 const unsigned int indicatorSampleCount = 8781;
 const signed char indicatorSamples[] = {
