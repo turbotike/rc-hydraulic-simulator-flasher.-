@@ -1,0 +1,20 @@
+#######################################
+# Syntax Coloring Map For rcTrigger
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+rcTrigger	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+begin	KEYWORD2
+onOff	KEYWORD2
+window	KEYWORD2
+momentary	KEYWORD2
+toggle	KEYWORD2
+toggleLong	KEYWORD2

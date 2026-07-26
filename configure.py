@@ -860,32 +860,134 @@ def find_pio():
         return pio2
     return "pio"
 
+# ── No-install build path: arduino-cli (no PlatformIO / VS Code required) ──────
+def find_arduino_cli():
+    import shutil
+    p = shutil.which("arduino-cli")
+    if p:
+        return p
+    la = os.environ.get("LOCALAPPDATA", "")
+    for c in [
+        os.path.join(la, "Programs", "Arduino IDE", "resources", "app", "lib", "backend", "resources", "arduino-cli.exe"),
+        r"C:\Program Files\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe",
+        "/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli",
+    ]:
+        if os.path.isfile(c):
+            return c
+    return None
+
+
+def get_build_libs():
+    """Bundled libraries (repo/libraries) so a fresh clone builds with nothing installed;
+    falls back to PlatformIO's .pio/libdeps on a dev machine."""
+    for base in [os.path.join(PROJECT_DIR, "libraries"),
+                 os.path.join(PROJECT_DIR, ".pio", "libdeps", "esp32")]:
+        if os.path.isdir(base):
+            dirs = [os.path.join(base, e) for e in os.listdir(base)
+                    if os.path.isdir(os.path.join(base, e))]
+            if dirs:
+                return dirs
+    return []
+
+
+def is_gamepad_build():
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            return bool(re.search(r'^#define\s+GAMEPAD_MODE\b', f.read(), re.MULTILINE))
+    except Exception:
+        return False
+
+
+def stage_build_dir():
+    """arduino-cli needs the sketch folder to match the .ino name, only compiles .cpp in the
+    root + a src/ subfolder, and rejects UTF-8 BOMs. So stage a clean copy: rename to
+    HydraulicController/, strip BOMs, flatten lib/ into the root and fix its includes."""
+    import shutil, glob
+    bd_root = os.path.join(PROJECT_DIR, ".arduino_build")
+    bd = os.path.join(bd_root, "HydraulicController")
+    shutil.rmtree(bd_root, ignore_errors=True)
+    os.makedirs(bd, exist_ok=True)
+    src = os.path.join(PROJECT_DIR, "src")
+    for item in os.listdir(src):
+        s, d = os.path.join(src, item), os.path.join(bd, item)
+        shutil.copytree(s, d) if os.path.isdir(s) else shutil.copy2(s, d)
+    libdir = os.path.join(bd, "lib")
+    if os.path.isdir(libdir):
+        for f in glob.glob(os.path.join(libdir, "*")):
+            shutil.move(f, os.path.join(bd, os.path.basename(f)))
+        os.rmdir(libdir)
+    for f in glob.glob(os.path.join(bd, "**", "*.*"), recursive=True):
+        if f.lower().endswith((".h", ".cpp", ".c", ".ino")):
+            b = open(f, "rb").read()
+            if b[:3] == b"\xef\xbb\xbf":
+                b = b[3:]
+            t = re.sub(r'#include\s+"lib/', '#include "', b.decode("utf-8", "replace"))
+            open(f, "w", encoding="utf-8", newline="").write(t)
+    return bd
+
+
+def run_build_cli(cli, upload=False, port=None):
+    global build_log
+    gamepad = is_gamepad_build()
+    core, ver = ("esp32-bluepad32:esp32", "4.1.0") if gamepad else ("esp32:esp32", "1.0.6")
+    fqbn = ("esp32-bluepad32:esp32:esp32:PartitionScheme=huge_app" if gamepad
+            else "esp32:esp32:esp32:PartitionScheme=huge_app")
+    url = ("https://raw.githubusercontent.com/ricardoquesada/esp32-arduino-lib-builder/master/bluepad32_files/package_esp32_bluepad32_index.json"
+           if gamepad else
+           "https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json")
+
+    def run(args):
+        p = subprocess.Popen([cli] + args, cwd=PROJECT_DIR, stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True, bufsize=1, shell=(os.name == "nt"))
+        for line in p.stdout:
+            build_log.append(line.rstrip())
+        p.wait()
+        return p.returncode
+
+    build_log.append("Building with arduino-cli (no PlatformIO / VS Code needed)...")
+    subprocess.run([cli, "config", "add", "board_manager.additional_urls", url],
+                   capture_output=True, shell=(os.name == "nt"))
+    listed = subprocess.run([cli, "core", "list"], capture_output=True, text=True,
+                            shell=(os.name == "nt")).stdout
+    if not (core in listed and ver in listed):
+        build_log.append(f"Installing {core}@{ver} (first time only, a few minutes)...")
+        run(["core", "update-index"])
+        run(["core", "install", f"{core}@{ver}"])
+    bd = stage_build_dir()
+    cmd = ["compile", "--fqbn", fqbn]
+    for lp in get_build_libs():
+        cmd += ["--library", lp]
+    if upload and port:
+        cmd += ["--upload", "--port", port]
+    cmd.append(bd)
+    build_log.append(f"Uploading to {port}..." if (upload and port) else "Compiling firmware...")
+    return run(cmd)
+
+
 def run_build(upload=False, port=None):
     global build_log, build_running
     build_log = []
     build_running = True
-    pio = find_pio()
-    # Gamepad builds use the Bluepad32 core (its own PlatformIO env).
-    env = "esp32"
     try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            if re.search(r'^#define\s+GAMEPAD_MODE\b', f.read(), re.MULTILINE):
-                env = "gamepad"
-    except Exception:
-        pass
-    cmd = [pio, "run", "-e", env]
-    if upload:
-        cmd.append("--target=upload")
-        if port:
-            cmd.extend(["--upload-port", port])
-    try:
-        proc = subprocess.Popen(cmd, cwd=PROJECT_DIR,
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                text=True, bufsize=1)
-        for line in proc.stdout:
-            build_log.append(line.rstrip())
-        proc.wait()
-        build_log.append(f"\n--- Exit code: {proc.returncode} ---")
+        cli = find_arduino_cli()
+        if cli:
+            rc = run_build_cli(cli, upload, port)
+        else:
+            # Fallback: PlatformIO (gamepad uses its own Bluepad32 env)
+            pio = find_pio()
+            env = "gamepad" if is_gamepad_build() else "esp32"
+            cmd = [pio, "run", "-e", env]
+            if upload:
+                cmd.append("--target=upload")
+                if port:
+                    cmd.extend(["--upload-port", port])
+            proc = subprocess.Popen(cmd, cwd=PROJECT_DIR, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True, bufsize=1)
+            for line in proc.stdout:
+                build_log.append(line.rstrip())
+            proc.wait()
+            rc = proc.returncode
+        build_log.append(f"\n--- Exit code: {rc} ---")
     except Exception as e:
         build_log.append(f"ERROR: {e}")
     build_running = False
