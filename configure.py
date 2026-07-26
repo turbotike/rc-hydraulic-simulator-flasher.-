@@ -181,6 +181,14 @@ def read_config():
         pat = re.compile(r'^#define\s+' + p, re.MULTILINE)
         if pat.search(text):
             cfg["rcProtocol"] = p
+    # Gamepad (Bluepad32) is a mutually-exclusive input source — Bluetooth instead of an RC bus.
+    if re.search(r'^#define\s+GAMEPAD_MODE\b', text, re.MULTILINE):
+        cfg["rcProtocol"] = "GAMEPAD_MODE"
+
+    # Dozer drive mode
+    cfg["driveMode"] = "DRIVE_DUAL_STICK"
+    if re.search(r'^#define\s+DRIVE_SINGLE_STICK_MIX\b', text, re.MULTILINE):
+        cfg["driveMode"] = "DRIVE_SINGLE_STICK_MIX"
 
     # SBUS settings
     m = re.search(r'boolean\s+sbusInverted\s*=\s*(true|false)', text)
@@ -357,14 +365,21 @@ def write_config(cfg):
         else:
             text = re.sub(r'^(//\s*)?#define\s+' + m + r'(.*)', '// #define ' + m + r'\2', text, flags=re.MULTILINE)
 
-    # RC protocol
+    # RC protocol / input source — GAMEPAD_MODE is mutually exclusive with the RC buses.
     rc_protos = ["SBUS_COMMUNICATION", "IBUS_COMMUNICATION", "SUMD_COMMUNICATION",
-                 "PPM_COMMUNICATION", "PWM_COMMUNICATION"]
+                 "PPM_COMMUNICATION", "PWM_COMMUNICATION", "GAMEPAD_MODE"]
     for p in rc_protos:
         if p == cfg.get("rcProtocol"):
-            text = re.sub(r'^(//\s*)?#define\s+' + p + r'(.*)', '#define ' + p + r'\2', text, flags=re.MULTILINE)
+            text = re.sub(r'^(//\s*)?#define\s+' + p + r'\b(.*)', '#define ' + p + r'\2', text, flags=re.MULTILINE)
         else:
-            text = re.sub(r'^(//\s*)?#define\s+' + p + r'(.*)', '// #define ' + p + r'\2', text, flags=re.MULTILINE)
+            text = re.sub(r'^(//\s*)?#define\s+' + p + r'\b(.*)', '// #define ' + p + r'\2', text, flags=re.MULTILINE)
+
+    # Dozer drive mode (single-joystick mix vs dual-stick)
+    for d in ("DRIVE_SINGLE_STICK_MIX", "DRIVE_DUAL_STICK"):
+        if d == cfg.get("driveMode"):
+            text = re.sub(r'^(//\s*)?#define\s+' + d + r'\b(.*)', '#define ' + d + r'\2', text, flags=re.MULTILINE)
+        else:
+            text = re.sub(r'^(//\s*)?#define\s+' + d + r'\b(.*)', '// #define ' + d + r'\2', text, flags=re.MULTILINE)
 
     # SBUS settings
     if "sbusInverted" in cfg:
@@ -850,7 +865,15 @@ def run_build(upload=False, port=None):
     build_log = []
     build_running = True
     pio = find_pio()
-    cmd = [pio, "run"]
+    # Gamepad builds use the Bluepad32 core (its own PlatformIO env).
+    env = "esp32"
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            if re.search(r'^#define\s+GAMEPAD_MODE\b', f.read(), re.MULTILINE):
+                env = "gamepad"
+    except Exception:
+        pass
+    cmd = [pio, "run", "-e", env]
     if upload:
         cmd.append("--target=upload")
         if port:
@@ -1903,13 +1926,22 @@ function panelSounds() {
 
 function panelRC() {
   return `<div class="panel" id="p-rc">
-    <div class="section-title">RC Protocol</div>
+    <div class="section-title">Input Source</div>
     ${radioGroup('rcProtocol', [
       {value:'SBUS_COMMUNICATION', label:'SBUS'},
       {value:'IBUS_COMMUNICATION', label:'IBUS'},
       {value:'SUMD_COMMUNICATION', label:'SUMD'},
       {value:'PPM_COMMUNICATION', label:'PPM'},
       {value:'PWM_COMMUNICATION', label:'PWM'},
+      {value:'GAMEPAD_MODE', label:'🎮 Gamepad (PS4/PS5/Xbox)'},
+    ])}
+    <p class="hint" style="color:var(--dim);font-size:12px;margin:6px 0 0">
+      Gamepad drives over Bluetooth (Bluepad32) — the flasher builds it on the Bluepad32 core
+      automatically. One radio: pick Gamepad <b>or</b> an RC bus, not both.</p>
+    <div class="section-title" style="margin-top:22px">Dozer Drive</div>
+    ${radioGroup('driveMode', [
+      {value:'DRIVE_SINGLE_STICK_MIX', label:'Single joystick (mixed to both tracks)'},
+      {value:'DRIVE_DUAL_STICK', label:'Dual stick (one per track)'},
     ])}
     <div class="section-title">SBUS Settings</div>
     <div class="field">
