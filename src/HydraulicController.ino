@@ -1145,6 +1145,7 @@ void esc() {
 int16_t cmdTrackL = 0, cmdTrackR = 0;       // commanded track effort ±500
 int16_t swashL = 0, swashR = 0;             // ramped swashplate state ±500
 int16_t actualTrackL = 0, actualTrackR = 0; // after droop, ±500 → servo
+int16_t driveFlowDemand = 0;                // track pump load (0..~60), set in hydrostaticModel
 
 static int16_t rampToward(int16_t cur, int16_t target, int16_t accel, int16_t decel) {
   int16_t rate = (abs(target) > abs(cur)) ? accel : decel; // stroking vs destroking
@@ -1193,7 +1194,6 @@ int16_t valveCmd[4] = {0, 0, 0, 0};        // ramped spool command ±500 (0=lift
 int32_t cylPos[4]   = {0, 0, 0, 0};        // integrated cylinder position [0..cylStroke]
 bool    cylAtEndstop[4] = {false, false, false, false};
 int16_t implFlowDemand = 0;                // total implement pump load (0..~100)
-int16_t driveFlowDemand = 0;               // track pump load (0..~60), set in hydrostaticModel
 int16_t totalFlowDemand = 0;               // drive + implements
 bool    systemRelief = false;              // demand exceeds engine-limited pump capacity
 bool    functionRelief[4] = {false, false, false, false};
