@@ -138,6 +138,15 @@ uint32_t sbusBaud = 100000;     // Standard 100000. Some receivers need 163863
 #define SERVO_CH3_PIN       14  // Boom / Winch
 #define SERVO_CH4_PIN       27  // Bucket / Blade
 
+// Dozer 6-output map (native pins, no PCA9685). Tracks on MCPWM Unit0; the 6-way PAT
+// blade + ripper on MCPWM Unit1 (the ESC pin is free in DOZER_MODE).
+#define TRACK_R_PIN         13  // MCPWM U0 T0 A
+#define TRACK_L_PIN         12  // MCPWM U0 T0 B
+#define BLADE_LIFT_PIN      33  // MCPWM U1 T0 A  (freed ESC pin)
+#define BLADE_TILT_PIN      32  // MCPWM U1 T0 B
+#define BLADE_ANGLE_PIN     14  // MCPWM U1 T1 A
+#define RIPPER_PIN          27  // MCPWM U1 T1 B
+
 // PWM-only RC input pins (only used if PWM_COMMUNICATION defined)
 #define PWM_CH1_PIN         36
 #define PWM_CH2_PIN         22

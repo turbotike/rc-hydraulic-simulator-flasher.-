@@ -1128,7 +1128,11 @@ void esc() {
   }
 
   escPulseWidth = constrain(escPulseWidth, effectiveMin, effectiveMax);
+#ifndef DOZER_MODE
+  // In DOZER_MODE this pin (GPIO33) is blade lift, driven by mcpwmOutput() — don't let the
+  // ESC state machine (running on Core 0) stomp it.
   mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_A, escPulseWidth);
+#endif
 
   // Calculate speed for sound engine
   currentSpeed = abs(escPulseWidth - 1500);
@@ -1143,7 +1147,38 @@ void mcpwmOutput() {
   if (millis() - lastFrame < 10) return;
   lastFrame = millis();
 
-  // Engine off → servos locked at center. Engine on → passthrough.
+#if defined DOZER_MODE
+  // ── Dozer: 6 hardware outputs on MCPWM (2 tracks + lift/tilt/angle + ripper) ──
+  // Stage 0 = passthrough plumbing (tracks/blade/ripper keep behaviour; tilt/angle centered
+  // until assigned). Stages 1-2 replace these with the hydrostatic mixer + valve model.
+  uint16_t trackR, trackL, lift, tilt, angle, ripper;
+  if (engineRunning) {
+    trackR = constrain(pulseWidth[CH_DZ_TRACK_R], servoMin[0], servoMax[0]);
+    trackL = constrain(pulseWidth[CH_DZ_TRACK_L], servoMin[1], servoMax[1]);
+    lift   = constrain(pulseWidth[CH_DZ_BLADE],   servoMin[2], servoMax[2]);
+    tilt   = (CH_DZ_TILT  > 0) ? constrain(pulseWidth[CH_DZ_TILT],  servoMin[2], servoMax[2]) : 1500;
+    angle  = (CH_DZ_ANGLE > 0) ? constrain(pulseWidth[CH_DZ_ANGLE], servoMin[2], servoMax[2]) : 1500;
+    ripper = constrain(pulseWidth[CH_DZ_RIPPER],  servoMin[3], servoMax[3]);
+  } else {
+    trackR = trackL = lift = tilt = angle = ripper = 1500;
+  }
+
+  #ifdef HILO_ENABLED
+  if (!hiLoIsHigh) {
+    trackR = 1500 + ((int16_t)trackR - 1500) * hiLoRatioPercent / 100;
+    trackL = 1500 + ((int16_t)trackL - 1500) * hiLoRatioPercent / 100;
+  }
+  #endif
+
+  mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, trackR); // GPIO13
+  mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, trackL); // GPIO12
+  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_A, lift);   // GPIO33
+  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_B, tilt);   // GPIO32
+  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_1, MCPWM_OPR_A, angle);  // GPIO14
+  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_1, MCPWM_OPR_B, ripper); // GPIO27
+
+#else
+  // ── Non-dozer: CH1/CH2 on MCPWM Unit0, CH3/CH4 on LEDC (unchanged) ──
   uint16_t out1, out2, out3, out4;
   if (engineRunning) {
     out1 = constrain(pulseWidth[CH_DZ_TRACK_R], servoMin[0], servoMax[0]);
@@ -1151,34 +1186,13 @@ void mcpwmOutput() {
     out3 = constrain(pulseWidth[CH_DZ_BLADE],   servoMin[2], servoMax[2]);
     out4 = constrain(pulseWidth[CH_DZ_RIPPER],  servoMin[3], servoMax[3]);
   } else {
-    out1 = 1500;
-    out2 = 1500;
-    out3 = 1500;
-    out4 = 1500;
+    out1 = out2 = out3 = out4 = 1500;
   }
-
-  // Hi/Lo: scale track servo throw in low range
-  #ifdef HILO_ENABLED
-  if (!hiLoIsHigh) {
-    int16_t dev1 = (int16_t)out1 - 1500;
-    int16_t dev2 = (int16_t)out2 - 1500;
-    out1 = 1500 + (dev1 * hiLoRatioPercent / 100);
-    out2 = 1500 + (dev2 * hiLoRatioPercent / 100);
-  }
-  #endif
-
-  // CH_DZ_TRACK_R → Servo 1 (MCPWM)
   mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, out1);
-
-  // CH_DZ_TRACK_L → Servo 2 (MCPWM)
   mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, out2);
-
-  // CH_DZ_BLADE → Servo 3 (LEDC as servo PWM: 1000-2000µs at 50Hz 13-bit)
-  // 50Hz = 20000µs period, 13-bit = 8192 steps → 1 step = 20000/8192 ≈ 2.44µs
   ledcWrite(0, out3 * 8192UL / 20000);
-
-  // CH_DZ_RIPPER → Servo 4 (LEDC as servo PWM)
   ledcWrite(1, out4 * 8192UL / 20000);
+#endif
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1877,31 +1891,37 @@ void setup() {
   digitalWrite(HEADLIGHT_PIN, LOW);
   digitalWrite(WORKLIGHT_PIN, LOW);
 
-  // Servo CH3 & CH4 via LEDC
-  ledcSetup(0, 50, 13);           // 50Hz servo, 13-bit
-  ledcAttachPin(SERVO_CH3_PIN, 0);
-  ledcSetup(1, 50, 13);
-  ledcAttachPin(SERVO_CH4_PIN, 1);
-
-  // MCPWM — Servos (Unit 0) and ESC (Unit 1)
-  mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0A, SERVO_CH1_PIN);
-  mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0B, SERVO_CH2_PIN);
+  // Servo outputs — all six on MCPWM (hardware PWM, zero ISR load, can't starve the DAC ISRs).
   mcpwm_config_t servo_config;
   servo_config.frequency = 50;
   servo_config.cmpr_a = 0;
   servo_config.cmpr_b = 0;
   servo_config.counter_mode = MCPWM_UP_COUNTER;
   servo_config.duty_mode = MCPWM_DUTY_MODE_0;
-  mcpwm_init(MCPWM_UNIT_0, MCPWM_TIMER_0, &servo_config);
 
+#if defined DOZER_MODE
+  // Tracks on Unit0 Timer0; 6-way blade + ripper on Unit1 (Timer0 A/B + Timer1 A/B).
+  mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0A, TRACK_R_PIN);     // GPIO13
+  mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0B, TRACK_L_PIN);     // GPIO12
+  mcpwm_gpio_init(MCPWM_UNIT_1, MCPWM0A, BLADE_LIFT_PIN);  // GPIO33 (freed ESC pin)
+  mcpwm_gpio_init(MCPWM_UNIT_1, MCPWM0B, BLADE_TILT_PIN);  // GPIO32
+  mcpwm_gpio_init(MCPWM_UNIT_1, MCPWM1A, BLADE_ANGLE_PIN); // GPIO14
+  mcpwm_gpio_init(MCPWM_UNIT_1, MCPWM1B, RIPPER_PIN);      // GPIO27
+  mcpwm_init(MCPWM_UNIT_0, MCPWM_TIMER_0, &servo_config);  // tracks
+  mcpwm_init(MCPWM_UNIT_1, MCPWM_TIMER_0, &servo_config);  // blade lift + tilt
+  mcpwm_init(MCPWM_UNIT_1, MCPWM_TIMER_1, &servo_config);  // blade angle + ripper
+#else
+  // Non-dozer: CH1/CH2 servos on Unit0, ESC on Unit1, CH3/CH4 servos on LEDC.
+  ledcSetup(0, 50, 13);
+  ledcAttachPin(SERVO_CH3_PIN, 0);
+  ledcSetup(1, 50, 13);
+  ledcAttachPin(SERVO_CH4_PIN, 1);
+  mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0A, SERVO_CH1_PIN);
+  mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0B, SERVO_CH2_PIN);
+  mcpwm_init(MCPWM_UNIT_0, MCPWM_TIMER_0, &servo_config);
   mcpwm_gpio_init(MCPWM_UNIT_1, MCPWM1A, ESC_OUT_PIN);
-  mcpwm_config_t esc_config;
-  esc_config.frequency = 50;
-  esc_config.cmpr_a = 0;
-  esc_config.cmpr_b = 0;
-  esc_config.counter_mode = MCPWM_UP_COUNTER;
-  esc_config.duty_mode = MCPWM_DUTY_MODE_0;
-  mcpwm_init(MCPWM_UNIT_1, MCPWM_TIMER_0, &esc_config);
+  mcpwm_init(MCPWM_UNIT_1, MCPWM_TIMER_0, &servo_config);
+#endif
 
   // RC input setup
 #if defined SBUS_COMMUNICATION
