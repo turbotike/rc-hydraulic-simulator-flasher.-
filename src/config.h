@@ -48,6 +48,19 @@ uint8_t CH_DZ_TILT     = 0;   // Blade tilt (left/right — S-blade or SU-blade)
 uint8_t CH_DZ_ANGLE    = 0;   // Blade angle (angling the moldboard)
 uint8_t CH_DZ_RIPPER_TILT = 0; // Ripper tilt
 
+// --- Dozer drive input: choose ONE at flash time ---
+#define DRIVE_SINGLE_STICK_MIX     // one stick: fwd/back + left/right, mixed to both tracks
+// #define DRIVE_DUAL_STICK        // one stick per track (skid-steer style)
+uint8_t CH_DZ_DRIVE    = 2;   // (mix mode) forward / reverse axis
+uint8_t CH_DZ_STEER    = 1;   // (mix mode) left / right axis
+
+// --- Hydrostatic drive tuning (dual-path pump→motor feel) ---
+int16_t swashAccelRate  = 15;   // swashplate stroke toward command, per 20ms tick (±500 span)
+int16_t swashDecelRate  = 25;   // destroke back toward neutral (faster than accel)
+int16_t trackThrowScale = 100;  // % of servo throw the tracks use
+int16_t counterRotScale = 80;   // % throw allowed while counter-rotating (spin on the spot)
+int16_t driveDroopRefRpm = 350; // engine rpm at/above which full track speed is available
+
 // --- Grader channels ---
 uint8_t CH_GR_BLADE    = 1;   // Blade lift (raise/lower moldboard)
 uint8_t CH_GR_CIRCLE   = 2;   // Circle rotation (moldboard angle)

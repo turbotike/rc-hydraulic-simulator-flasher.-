@@ -1139,6 +1139,56 @@ void esc() {
 }
 
 // ════════════════════════════════════════════════════════════════
+// HYDROSTATIC DUAL-PATH DRIVE (dozer) — mixer + swashplate/droop model
+// ════════════════════════════════════════════════════════════════
+#if defined DOZER_MODE
+int16_t cmdTrackL = 0, cmdTrackR = 0;       // commanded track effort ±500
+int16_t swashL = 0, swashR = 0;             // ramped swashplate state ±500
+int16_t actualTrackL = 0, actualTrackR = 0; // after droop, ±500 → servo
+
+static int16_t rampToward(int16_t cur, int16_t target, int16_t accel, int16_t decel) {
+  int16_t rate = (abs(target) > abs(cur)) ? accel : decel; // stroking vs destroking
+  if (cur < target) { cur += rate; if (cur > target) cur = target; }
+  else if (cur > target) { cur -= rate; if (cur < target) cur = target; }
+  return cur;
+}
+
+// Read the sticks → commanded left/right track effort (±500).
+void driveMixer() {
+#if defined DRIVE_SINGLE_STICK_MIX
+  int32_t drive = (int32_t)pulseWidth[CH_DZ_DRIVE] - 1500; // ±500
+  int32_t steer = (int32_t)pulseWidth[CH_DZ_STEER] - 1500;
+  int32_t l = drive + steer;
+  int32_t r = drive - steer;
+  int32_t m = max(labs(l), labs(r));
+  if (m > 500) { l = l * 500 / m; r = r * 500 / m; } // normalize, keep turn ratio
+  if (l != 0 && r != 0 && ((l > 0) != (r > 0))) {     // counter-rotating pivot
+    l = l * counterRotScale / 100;
+    r = r * counterRotScale / 100;
+  }
+  cmdTrackL = l;
+  cmdTrackR = r;
+#else // DRIVE_DUAL_STICK — one stick per track
+  cmdTrackL = (int16_t)pulseWidth[CH_DZ_TRACK_L] - 1500;
+  cmdTrackR = (int16_t)pulseWidth[CH_DZ_TRACK_R] - 1500;
+#endif
+  if (!engineRunning) { cmdTrackL = 0; cmdTrackR = 0; }
+}
+
+// Swashplate ramp + engine-load speed droop → actual track speed. 20ms tick.
+void hydrostaticModel() {
+  static unsigned long last = 0;
+  if (millis() - last < 20) return;
+  last = millis();
+  swashL = rampToward(swashL, cmdTrackL, swashAccelRate, swashDecelRate);
+  swashR = rampToward(swashR, cmdTrackR, swashAccelRate, swashDecelRate);
+  int32_t droop = constrain((int32_t)currentRpm * 100 / max((int16_t)1, driveDroopRefRpm), 0, 100);
+  actualTrackL = swashL * droop / 100; // tracks slow as the engine bogs, recover as rpm returns
+  actualTrackR = swashR * droop / 100;
+}
+#endif // DOZER_MODE
+
+// ════════════════════════════════════════════════════════════════
 // SERVO OUTPUT (MCPWM)
 // ════════════════════════════════════════════════════════════════
 
@@ -1152,23 +1202,22 @@ void mcpwmOutput() {
   // Stage 0 = passthrough plumbing (tracks/blade/ripper keep behaviour; tilt/angle centered
   // until assigned). Stages 1-2 replace these with the hydrostatic mixer + valve model.
   uint16_t trackR, trackL, lift, tilt, angle, ripper;
+  // Tracks: hydrostatic model output (already 0 when engine off — cmd forced to 0).
+  int16_t aR = actualTrackR, aL = actualTrackL;
+  #ifdef HILO_ENABLED
+  if (!hiLoIsHigh) { aR = aR * hiLoRatioPercent / 100; aL = aL * hiLoRatioPercent / 100; }
+  #endif
+  trackR = constrain(1500 + aR * trackThrowScale / 100, servoMin[0], servoMax[0]);
+  trackL = constrain(1500 + aL * trackThrowScale / 100, servoMin[1], servoMax[1]);
+  // Implements: Stage-0 passthrough for now (Stage 2 replaces with the valve model).
   if (engineRunning) {
-    trackR = constrain(pulseWidth[CH_DZ_TRACK_R], servoMin[0], servoMax[0]);
-    trackL = constrain(pulseWidth[CH_DZ_TRACK_L], servoMin[1], servoMax[1]);
     lift   = constrain(pulseWidth[CH_DZ_BLADE],   servoMin[2], servoMax[2]);
     tilt   = (CH_DZ_TILT  > 0) ? constrain(pulseWidth[CH_DZ_TILT],  servoMin[2], servoMax[2]) : 1500;
     angle  = (CH_DZ_ANGLE > 0) ? constrain(pulseWidth[CH_DZ_ANGLE], servoMin[2], servoMax[2]) : 1500;
     ripper = constrain(pulseWidth[CH_DZ_RIPPER],  servoMin[3], servoMax[3]);
   } else {
-    trackR = trackL = lift = tilt = angle = ripper = 1500;
+    lift = tilt = angle = ripper = 1500;
   }
-
-  #ifdef HILO_ENABLED
-  if (!hiLoIsHigh) {
-    trackR = 1500 + ((int16_t)trackR - 1500) * hiLoRatioPercent / 100;
-    trackL = 1500 + ((int16_t)trackL - 1500) * hiLoRatioPercent / 100;
-  }
-  #endif
 
   mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, trackR); // GPIO13
   mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, trackL); // GPIO12
@@ -2020,6 +2069,8 @@ void loop() {
 #elif defined CRANE_MODE
   craneControl();
 #elif defined DOZER_MODE
+  driveMixer();       // sticks → commanded track effort
+  hydrostaticModel(); // swashplate ramp + engine-load speed droop
   dozerControl();
 #elif defined SKIDSTEER_MODE
   skidSteerControl();
