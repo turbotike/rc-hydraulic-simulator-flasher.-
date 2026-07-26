@@ -61,6 +61,11 @@ int16_t trackThrowScale = 100;  // % of servo throw the tracks use
 int16_t counterRotScale = 80;   // % throw allowed while counter-rotating (spin on the spot)
 int16_t driveDroopRefRpm = 350; // engine rpm at/above which full track speed is available
 
+// --- Implement (proportional valve) model: [lift, tilt, angle, ripper] ---
+int16_t cylStroke[4]      = {1000, 800, 800, 900}; // cylinder travel units (for end-stop detection)
+int16_t cylSpeed[4]       = {30, 40, 40, 30};      // position units per 20ms per full spool
+uint8_t implFlowWeight[4] = {40, 25, 25, 35};      // % pump load each function draws at full flow
+
 // --- Grader channels ---
 uint8_t CH_GR_BLADE    = 1;   // Blade lift (raise/lower moldboard)
 uint8_t CH_GR_CIRCLE   = 2;   // Circle rotation (moldboard angle)

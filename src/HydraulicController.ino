@@ -1186,6 +1186,37 @@ void hydrostaticModel() {
   actualTrackL = swashL * droop / 100; // tracks slow as the engine bogs, recover as rpm returns
   actualTrackR = swashR * droop / 100;
 }
+
+// ── Proportional implement valves: lift/tilt/angle/ripper + cylinder position ──
+int16_t valveCmd[4] = {0, 0, 0, 0};        // ramped spool command ±500 (0=lift,1=tilt,2=angle,3=ripper)
+int32_t cylPos[4]   = {0, 0, 0, 0};        // integrated cylinder position [0..cylStroke]
+bool    cylAtEndstop[4] = {false, false, false, false};
+int16_t implFlowDemand = 0;                // total implement pump load (0..~125)
+
+void implementControl() {
+  static unsigned long last = 0;
+  if (millis() - last < 20) return;
+  last = millis();
+
+  const uint8_t chans[4] = {CH_DZ_BLADE, CH_DZ_TILT, CH_DZ_ANGLE, CH_DZ_RIPPER};
+  int16_t rampStep = (int16_t)(500L * 20 / max((uint16_t)20, hydraulicRampTime)); // span per 20ms
+  int32_t demand = 0;
+  for (int i = 0; i < 4; i++) {
+    int16_t raw = 0;
+    if (chans[i] > 0 && engineRunning) {
+      raw = (int16_t)pulseWidth[chans[i]] - 1500;
+      if (abs(raw) < hydraulicDeadZone) raw = 0;                        // deadzone
+      else raw = (raw > 0) ? raw - hydraulicDeadZone : raw + hydraulicDeadZone;
+    }
+    valveCmd[i] = rampToward(valveCmd[i], constrain(raw, -500, 500), rampStep, rampStep);
+    cylPos[i] += (int32_t)valveCmd[i] * cylSpeed[i] / 500;              // integrate travel
+    cylAtEndstop[i] = false;
+    if (cylPos[i] < 0)            { cylPos[i] = 0;            if (valveCmd[i] < 0) cylAtEndstop[i] = true; }
+    if (cylPos[i] > cylStroke[i]) { cylPos[i] = cylStroke[i]; if (valveCmd[i] > 0) cylAtEndstop[i] = true; }
+    demand += (int32_t)abs(valveCmd[i]) * implFlowWeight[i] / 100;
+  }
+  implFlowDemand = (int16_t)(demand / 5); // scale to ~0..100 range
+}
 #endif // DOZER_MODE
 
 // ════════════════════════════════════════════════════════════════
@@ -1209,15 +1240,11 @@ void mcpwmOutput() {
   #endif
   trackR = constrain(1500 + aR * trackThrowScale / 100, servoMin[0], servoMax[0]);
   trackL = constrain(1500 + aL * trackThrowScale / 100, servoMin[1], servoMax[1]);
-  // Implements: Stage-0 passthrough for now (Stage 2 replaces with the valve model).
-  if (engineRunning) {
-    lift   = constrain(pulseWidth[CH_DZ_BLADE],   servoMin[2], servoMax[2]);
-    tilt   = (CH_DZ_TILT  > 0) ? constrain(pulseWidth[CH_DZ_TILT],  servoMin[2], servoMax[2]) : 1500;
-    angle  = (CH_DZ_ANGLE > 0) ? constrain(pulseWidth[CH_DZ_ANGLE], servoMin[2], servoMax[2]) : 1500;
-    ripper = constrain(pulseWidth[CH_DZ_RIPPER],  servoMin[3], servoMax[3]);
-  } else {
-    lift = tilt = angle = ripper = 1500;
-  }
+  // Implements: proportional valve model output (deadzoned + ramped in implementControl()).
+  lift   = constrain(1500 + valveCmd[0], servoMin[2], servoMax[2]);
+  tilt   = constrain(1500 + valveCmd[1], servoMin[2], servoMax[2]);
+  angle  = constrain(1500 + valveCmd[2], servoMin[2], servoMax[2]);
+  ripper = constrain(1500 + valveCmd[3], servoMin[3], servoMax[3]);
 
   mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, trackR); // GPIO13
   mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, trackL); // GPIO12
@@ -2069,8 +2096,9 @@ void loop() {
 #elif defined CRANE_MODE
   craneControl();
 #elif defined DOZER_MODE
-  driveMixer();       // sticks → commanded track effort
-  hydrostaticModel(); // swashplate ramp + engine-load speed droop
+  driveMixer();        // sticks → commanded track effort
+  hydrostaticModel();  // swashplate ramp + engine-load speed droop
+  implementControl();  // proportional blade/ripper valves + cylinder position
   dozerControl();
 #elif defined SKIDSTEER_MODE
   skidSteerControl();
