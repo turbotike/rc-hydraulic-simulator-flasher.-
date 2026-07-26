@@ -1185,13 +1185,19 @@ void hydrostaticModel() {
   int32_t droop = constrain((int32_t)currentRpm * 100 / max((int16_t)1, driveDroopRefRpm), 0, 100);
   actualTrackL = swashL * droop / 100; // tracks slow as the engine bogs, recover as rpm returns
   actualTrackR = swashR * droop / 100;
+  driveFlowDemand = (int16_t)(((int32_t)abs(swashL) + abs(swashR)) * driveFlowWeight / 1000);
 }
 
 // ── Proportional implement valves: lift/tilt/angle/ripper + cylinder position ──
 int16_t valveCmd[4] = {0, 0, 0, 0};        // ramped spool command ±500 (0=lift,1=tilt,2=angle,3=ripper)
 int32_t cylPos[4]   = {0, 0, 0, 0};        // integrated cylinder position [0..cylStroke]
 bool    cylAtEndstop[4] = {false, false, false, false};
-int16_t implFlowDemand = 0;                // total implement pump load (0..~125)
+int16_t implFlowDemand = 0;                // total implement pump load (0..~100)
+int16_t driveFlowDemand = 0;               // track pump load (0..~60), set in hydrostaticModel
+int16_t totalFlowDemand = 0;               // drive + implements
+bool    systemRelief = false;              // demand exceeds engine-limited pump capacity
+bool    functionRelief[4] = {false, false, false, false};
+volatile bool reliefActive = false;        // read by the audio ISR + governor
 
 void implementControl() {
   static unsigned long last = 0;
@@ -1216,6 +1222,30 @@ void implementControl() {
     demand += (int32_t)abs(valveCmd[i]) * implFlowWeight[i] / 100;
   }
   implFlowDemand = (int16_t)(demand / 5); // scale to ~0..100 range
+}
+
+// ── Relief valve: a function at its end-stop, or total demand beyond the (engine-limited)
+//    pump capacity, "relieves" — the engine strains, the flow sound spikes, RPM lugs. ──
+void reliefLogic() {
+  totalFlowDemand = driveFlowDemand + implFlowDemand;
+  int32_t cap = (int32_t)pumpFlowCapacity * max((int32_t)1, (int32_t)currentRpm)
+              / max((int16_t)1, driveDroopRefRpm); // capacity falls as the engine bogs
+  systemRelief = totalFlowDemand > cap;
+
+  static uint32_t reliefLastMs = 0;
+  bool any = systemRelief;
+  for (int i = 0; i < 4; i++) {
+    functionRelief[i] = cylAtEndstop[i] || (systemRelief && abs(valveCmd[i]) > hydraulicDeadZone);
+    if (functionRelief[i]) any = true;
+  }
+  if (any) reliefLastMs = millis();
+  reliefActive = (millis() - reliefLastMs < reliefHoldMs);
+
+  if (reliefActive) {
+    // Engine strains + audible relief cue (dedicated squeal sample lands in Stage 5).
+    if (hydraulicLoad < 80) hydraulicLoad = 80;
+    hydraulicFlowVolume = 100;
+  }
 }
 #endif // DOZER_MODE
 
@@ -2100,6 +2130,7 @@ void loop() {
   hydrostaticModel();  // swashplate ramp + engine-load speed droop
   implementControl();  // proportional blade/ripper valves + cylinder position
   dozerControl();
+  reliefLogic();       // relief-valve strain when at end-stop or over pump capacity
 #elif defined SKIDSTEER_MODE
   skidSteerControl();
 #elif defined GRADER_MODE

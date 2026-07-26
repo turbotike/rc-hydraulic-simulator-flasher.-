@@ -66,6 +66,12 @@ int16_t cylStroke[4]      = {1000, 800, 800, 900}; // cylinder travel units (for
 int16_t cylSpeed[4]       = {30, 40, 40, 30};      // position units per 20ms per full spool
 uint8_t implFlowWeight[4] = {40, 25, 25, 35};      // % pump load each function draws at full flow
 
+// --- Relief valve / pump capacity ---
+int16_t driveFlowWeight   = 60;  // how hard the tracks load the pump/engine
+int16_t pumpFlowCapacity  = 140; // total flow the engine can supply at ref rpm
+int16_t reliefSquealVol   = 150; // relief-valve squeal volume
+uint16_t reliefHoldMs     = 140; // debounce so the relief cue is steady, not stuttering
+
 // --- Grader channels ---
 uint8_t CH_GR_BLADE    = 1;   // Blade lift (raise/lower moldboard)
 uint8_t CH_GR_CIRCLE   = 2;   // Circle rotation (moldboard angle)
