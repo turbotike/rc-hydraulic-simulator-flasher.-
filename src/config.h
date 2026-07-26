@@ -320,6 +320,7 @@ volatile int hydraulicPumpVolumePercentage = 120;
 // --- Hydraulic fluid flow ---
 volatile int hydraulicFlowVolumePercentage = 0;
 #include "sounds/Caterpillar323HydraulicFlow.h"
+#include "sounds/reliefSqueal.h"
 
 // --- Track rattle ---
 volatile int trackRattleVolumePercentage = 175;
@@ -475,6 +476,9 @@ volatile uint32_t       _rt_hydraulicPumpSampleCount = hydraulicPumpSampleCount;
 const int8_t*  volatile _rt_hydraulicFlowSamples    = hydraulicFlowSamples;
 volatile uint32_t       _rt_hydraulicFlowSampleCount = hydraulicFlowSampleCount;
 
+const int8_t*  volatile _rt_reliefSquealSamples     = reliefSquealSamples;
+volatile uint32_t       _rt_reliefSquealSampleCount  = reliefSquealSampleCount;
+
 const int8_t*  volatile _rt_trackRattleSamples      = trackRattleSamples;
 volatile uint32_t       _rt_trackRattleSampleCount  = trackRattleSampleCount;
 
@@ -526,6 +530,8 @@ volatile uint32_t       _rt_bucketRattleSampleCount = bucketRattleSampleCount;
 #define hydraulicPumpSampleCount _rt_hydraulicPumpSampleCount
 #define hydraulicFlowSamples    _rt_hydraulicFlowSamples
 #define hydraulicFlowSampleCount _rt_hydraulicFlowSampleCount
+#define reliefSquealSamples     _rt_reliefSquealSamples
+#define reliefSquealSampleCount _rt_reliefSquealSampleCount
 #define trackRattleSamples      _rt_trackRattleSamples
 #define trackRattleSampleCount  _rt_trackRattleSampleCount
 #define bucketRattleSamples     _rt_bucketRattleSamples

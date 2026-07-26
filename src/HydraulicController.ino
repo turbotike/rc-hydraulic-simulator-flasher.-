@@ -209,6 +209,7 @@ volatile uint16_t hydraulicDependentKnockVolume = 100;
 volatile uint16_t hydraulicLoad = 0;
 volatile bool engineLugging = false; // dozer governor: engine bogged under heavy load
 int16_t totalFlowDemand = 0;         // dozer: drive + implement pump demand (read by the governor)
+volatile bool reliefActive = false;  // dozer: relief valve open — read by the audio ISR
 
 volatile uint8_t dacOffset = 0;
 
@@ -476,7 +477,8 @@ void IRAM_ATTR fixedPlaybackTimer() {
   static uint32_t curBucketRattleSample = 0;
   static int32_t a, a1, a2 = 0;
   static int32_t b, b0, b1, b2, b3, b4, b5, b6, b7, b8, b9 = 0;
-  static int32_t c, c1, c2, c3, c4 = 0;
+  static int32_t c, c1, c2, c3, c4, c5 = 0;
+  static uint32_t curReliefSample = 0;
   static int32_t d, d1, d2 = 0;
   static boolean knockSilent = 0;
   static boolean knockMedium = 0;
@@ -652,10 +654,19 @@ void IRAM_ATTR fixedPlaybackTimer() {
     curBucketRattleSample = 0;
   }
 
+  // Relief-valve squeal (loops while the relief is active)
+  if (reliefActive && curReliefSample < reliefSquealSampleCount - 1) {
+    c5 = (reliefSquealSamples[curReliefSample] * reliefSquealVol / 100);
+    curReliefSample++;
+  } else {
+    c5 = 0;
+    curReliefSample = 0;
+  }
+
   // Mix & output to DAC2
   a = a1 + a2;
   b = b0 * 5 + b1 + b2 / 2 + b3 + b4 + b5 + b6 + b7 + b8 + b9;
-  c = c1 + c2 + c3 + c4;
+  c = c1 + c2 + c3 + c4 + c5;
   d = d1 + d2;
 
   uint8_t value = constrain(((a * 8 / 10) + (b * 2 / 10) + c + d) * masterVolume / 100 + dacOffset, 0, 255);
@@ -1210,7 +1221,6 @@ bool    cylAtEndstop[4] = {false, false, false, false};
 int16_t implFlowDemand = 0;                // total implement pump load (0..~100)
 bool    systemRelief = false;              // demand exceeds engine-limited pump capacity
 bool    functionRelief[4] = {false, false, false, false};
-volatile bool reliefActive = false;        // read by the audio ISR + governor
 
 void implementControl() {
   static unsigned long last = 0;

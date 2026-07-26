@@ -119,6 +119,7 @@ bool loadSoundPack() {
         LOAD_SLOT2("uncoupling",    _rt_uncouplingSamples,  _rt_uncouplingSampleCount)
         LOAD_SLOT2("hydraulicPump", _rt_hydraulicPumpSamples, _rt_hydraulicPumpSampleCount)
         LOAD_SLOT2("hydraulicFlow", _rt_hydraulicFlowSamples, _rt_hydraulicFlowSampleCount)
+        LOAD_SLOT2("reliefSqueal", _rt_reliefSquealSamples, _rt_reliefSquealSampleCount)
         LOAD_SLOT2("trackRattle",   _rt_trackRattleSamples, _rt_trackRattleSampleCount)
         LOAD_SLOT2("bucketRattle",  _rt_bucketRattleSamples, _rt_bucketRattleSampleCount)
 
