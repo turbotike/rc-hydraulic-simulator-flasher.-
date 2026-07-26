@@ -20,6 +20,7 @@
 #include <Preferences.h>
 #include "config.h"
 #include "soundpack.h"
+#include "gamepad.h"
 
 // ── Libraries ──────────────────────────────────────────────────
 #if defined SBUS_COMMUNICATION && !defined EMBEDDED_SBUS
@@ -2055,7 +2056,9 @@ void setup() {
 #endif
 
   // RC input setup
-#if defined SBUS_COMMUNICATION
+#if defined GAMEPAD_MODE
+  setupGamepad();
+#elif defined SBUS_COMMUNICATION
   #if defined EMBEDDED_SBUS
     sBus.begin(COMMAND_RX, COMMAND_TX, sbusInverted, sbusBaud);
   #else
@@ -2093,11 +2096,15 @@ void setup() {
   Serial.println("Waiting for RC signal...");
   uint32_t rcTimeout = millis();
   while (!autoZeroDone && millis() - rcTimeout < 5000) {
+#if defined GAMEPAD_MODE
+    readGamepadCommands();
+#else
     readSbusCommands();
     readIbusCommands();
     readSumdCommands();
     readPpmCommands();
     readPwmSignals();
+#endif
     processRawChannels();
     delay(20);
   }
@@ -2131,12 +2138,16 @@ void loop() {
   // Handle serial config commands (channel mapping, etc.)
   handleSerialCommands();
 
-  // Read RC
+  // Read RC (or the gamepad — it fills the same channels)
+#if defined GAMEPAD_MODE
+  readGamepadCommands();
+#else
   readSbusCommands();
   readIbusCommands();
   readSumdCommands();
   readPpmCommands();
   readPwmSignals();
+#endif
   processRawChannels();
   failsafeRcSignals();
 

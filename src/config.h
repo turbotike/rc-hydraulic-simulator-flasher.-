@@ -48,6 +48,11 @@ uint8_t CH_DZ_TILT     = 0;   // Blade tilt (left/right — S-blade or SU-blade)
 uint8_t CH_DZ_ANGLE    = 0;   // Blade angle (angling the moldboard)
 uint8_t CH_DZ_RIPPER_TILT = 0; // Ripper tilt
 
+// --- Run the dozer on a game controller (PS4/PS5/Xbox) instead of an RC receiver ---
+// Needs the esp32-bluepad32 board core — the flasher selects it for a gamepad build. When on,
+// comment out the RC protocol below (one radio: Bluetooth OR the RC bus, not both).
+// #define GAMEPAD_MODE
+
 // --- Dozer drive input: choose ONE at flash time ---
 #define DRIVE_SINGLE_STICK_MIX     // one stick: fwd/back + left/right, mixed to both tracks
 // #define DRIVE_DUAL_STICK        // one stick per track (skid-steer style)
