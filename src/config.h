@@ -72,6 +72,13 @@ int16_t pumpFlowCapacity  = 140; // total flow the engine can supply at ref rpm
 int16_t reliefSquealVol   = 150; // relief-valve squeal volume
 uint16_t reliefHoldMs     = 140; // debounce so the relief cue is steady, not stuttering
 
+// --- Engine governor (dozer): holds rpm, sags under load, lugs when bogged ---
+int16_t sagAttack       = 6;   // rpm/tick the governor bogs under load (fast)
+int16_t sagRecovery     = 3;   // rpm/tick it claws rpm back (slower)
+int16_t maxSagRpm       = 220; // max rpm droop at full pump demand
+int16_t lugRpmThreshold = 150; // below this rpm under load → lugging (heavy strain)
+int16_t lugKnockBoost   = 40;  // extra engine strain when lugging
+
 // --- Grader channels ---
 uint8_t CH_GR_BLADE    = 1;   // Blade lift (raise/lower moldboard)
 uint8_t CH_GR_CIRCLE   = 2;   // Circle rotation (moldboard angle)

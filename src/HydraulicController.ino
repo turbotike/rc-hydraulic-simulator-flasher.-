@@ -206,6 +206,8 @@ volatile uint16_t trackRattle2Volume = 0;
 volatile uint32_t trackRattle2TriggerInterval = 0;
 volatile uint16_t hydraulicDependentKnockVolume = 100;
 volatile uint16_t hydraulicLoad = 0;
+volatile bool engineLugging = false; // dozer governor: engine bogged under heavy load
+int16_t totalFlowDemand = 0;         // dozer: drive + implement pump demand (read by the governor)
 
 volatile uint8_t dacOffset = 0;
 
@@ -989,8 +991,19 @@ void engineMassSimulation() {
 
   int32_t targetRpm = 0;
 
-#if defined EXCAVATOR_MODE || defined DOZER_MODE
-  // Excavator/Dozer: throttle sets target RPM, hydraulic load drops it
+#if defined DOZER_MODE
+  // Governor: setpoint = throttle; RPM sags under TOTAL hydraulic demand (drive + implements)
+  // with fast attack / slow recovery, and lugs when bogged under heavy load.
+  static int16_t rpmSag = 0;
+  int16_t targetSag = map(constrain(totalFlowDemand, 0, pumpFlowCapacity),
+                          0, max((int16_t)1, pumpFlowCapacity), 0, maxSagRpm);
+  if (rpmSag < targetSag)      { rpmSag += sagAttack;   if (rpmSag > targetSag) rpmSag = targetSag; }
+  else if (rpmSag > targetSag) { rpmSag -= sagRecovery; if (rpmSag < targetSag) rpmSag = targetSag; }
+  targetRpm = constrain((int32_t)currentThrottle - rpmSag, 0, 500);
+  engineLugging = (currentRpm < lugRpmThreshold && totalFlowDemand > pumpFlowCapacity / 2);
+
+#elif defined EXCAVATOR_MODE
+  // Excavator: throttle sets target RPM, hydraulic load drops it
   targetRpm = currentThrottle - hydraulicLoad;
   targetRpm = constrain(targetRpm, 0, 500);
 
@@ -1194,7 +1207,6 @@ int16_t valveCmd[4] = {0, 0, 0, 0};        // ramped spool command ±500 (0=lift
 int32_t cylPos[4]   = {0, 0, 0, 0};        // integrated cylinder position [0..cylStroke]
 bool    cylAtEndstop[4] = {false, false, false, false};
 int16_t implFlowDemand = 0;                // total implement pump load (0..~100)
-int16_t totalFlowDemand = 0;               // drive + implements
 bool    systemRelief = false;              // demand exceeds engine-limited pump capacity
 bool    functionRelief[4] = {false, false, false, false};
 volatile bool reliefActive = false;        // read by the audio ISR + governor
@@ -1245,6 +1257,10 @@ void reliefLogic() {
     // Engine strains + audible relief cue (dedicated squeal sample lands in Stage 5).
     if (hydraulicLoad < 80) hydraulicLoad = 80;
     hydraulicFlowVolume = 100;
+  }
+  if (engineLugging) {
+    // Bogged under load: heavier knock (the diesel "digging in" hammer).
+    hydraulicDependentKnockVolume = constrain(hydraulicDependentKnockVolume + lugKnockBoost, 0, 200);
   }
 }
 #endif // DOZER_MODE
