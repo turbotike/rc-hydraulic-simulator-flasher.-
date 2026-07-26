@@ -1262,6 +1262,15 @@ void reliefLogic() {
     // Bogged under load: heavier knock (the diesel "digging in" hammer).
     hydraulicDependentKnockVolume = constrain(hydraulicDependentKnockVolume + lugKnockBoost, 0, 200);
   }
+
+  // Sound coupling: drive load lifts the pump whine; track motion adds the hydrostatic "sing".
+  // Take max() so this augments (never silences) the implement-driven pump from dozerControl().
+  uint16_t drivePump = (uint16_t)constrain(driveFlowDemand, (int16_t)0, (int16_t)100);
+  if (hydraulicPumpVolume < drivePump) hydraulicPumpVolume = drivePump;
+  if (!reliefActive) {
+    uint16_t sing = (uint16_t)constrain((abs(actualTrackL) + abs(actualTrackR)) / 8, 0, 90);
+    if (hydraulicFlowVolume < sing) hydraulicFlowVolume = sing;
+  }
 }
 #endif // DOZER_MODE
 
