@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The DIYGuy999 · Light · Sound · Speed Controller</title>
+<link rel="icon" type="image/png" href="/web/favicon.png">
+<link rel="stylesheet" href="/web/styles.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <img class="logo" src="/web/logo.png" alt="TheDIYGuy999 — Light, Sound &amp; Speed Controller">
+  </div>
+  <div class="veh">
+    <label for="vehicleSel">Vehicle</label>
+    <select id="vehicleSel"><option>Loading…</option></select>
+  </div>
+  <div class="spacer"></div>
+  <span id="dirty" class="dirty"></span>
+  <button id="saveBtn">Save</button>
+  <button id="flashBtnTop" class="primary">⚡ Flash</button>
+  <button id="quitBtn" class="quit" title="Close the app">⏻ Quit</button>
+</header>
+
+<nav id="tabs"></nav>
+<main id="content">
+  <div class="empty">Loading configuration…</div>
+</main>
+
+<input type="file" id="importFile" accept=".h" style="display:none">
+<input type="file" id="wavFile" accept=".wav,audio/*" style="display:none">
+<div id="modal"></div>
+<div id="toast"></div>
+
+<script type="module" src="/web/app.js"></script>
+</body>
+</html>
