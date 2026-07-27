@@ -9,6 +9,25 @@
 
 #include <Bluepad32.h>
 
+// Button map written by the flasher's Controls tab (defaults if the file is absent).
+#if defined __has_include
+#  if __has_include("gamepad_config.h")
+#    include "gamepad_config.h"
+#  endif
+#endif
+#ifndef GP_BTN_HORN
+#define GP_BTN_HORN 0x0002   // Circle / B
+#endif
+#ifndef GP_BTN_ENGINE
+#define GP_BTN_ENGINE 0x0008 // Triangle / Y
+#endif
+#ifndef GP_BTN_LIGHTS
+#define GP_BTN_LIGHTS 0x0001 // Cross / A
+#endif
+#ifndef GP_BTN_HILO
+#define GP_BTN_HILO 0x0004   // Square / X
+#endif
+
 extern uint16_t pulseWidthRaw[];
 ControllerPtr gpController = nullptr;
 
@@ -46,10 +65,10 @@ void readGamepadCommands() {
   pulseWidthRaw[4] = (uint16_t)constrain(rip, 1000, 2000);            // ripper
   pulseWidthRaw[5] = 2000;                     // dozer throttle (forward-only, governor handles rpm)
   uint16_t b = c->buttons();
-  pulseWidthRaw[6] = (b & 0x0001) ? 2000 : 1500; // Cross   -> lights
-  pulseWidthRaw[7] = (b & 0x0004) ? 2000 : 1500; // Square  -> Hi/Lo
-  pulseWidthRaw[8] = (b & 0x0002) ? 2000 : 1500; // Circle  -> horn
-  pulseWidthRaw[9] = (b & 0x0008) ? 2000 : 1500; // Triangle-> engine on/off
+  pulseWidthRaw[6] = (b & GP_BTN_LIGHTS) ? 2000 : 1500; // lights
+  pulseWidthRaw[7] = (b & GP_BTN_HILO)   ? 2000 : 1500; // Hi/Lo
+  pulseWidthRaw[8] = (b & GP_BTN_HORN)   ? 2000 : 1500; // horn
+  pulseWidthRaw[9] = (b & GP_BTN_ENGINE) ? 2000 : 1500; // engine on/off
   pulseWidthRaw[10] = gpAxisUs(c->axisRX());     // blade angle (assign CH_DZ_ANGLE = 10)
   uint8_t dp = c->dpad();
   pulseWidthRaw[11] = (dp & 0x08) ? 1000 : ((dp & 0x04) ? 2000 : 1500); // tilt (assign CH_DZ_TILT = 11)

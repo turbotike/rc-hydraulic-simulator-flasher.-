@@ -1266,6 +1266,169 @@ def spa_save(payload):
     write_config(full)
 
 
+# ─── Gamepad control-mapping (ported from the DIYGuy flasher, adapted to the dozer) ───
+GP_CONFIG_PATH = os.path.join(PROJECT_DIR, "src", "gamepad_config.h")
+GP_BUTTON_CHOICES = [
+    ["0x0001", "Cross / A"], ["0x0002", "Circle / B"], ["0x0004", "Square / X"],
+    ["0x0008", "Triangle / Y"], ["0x0010", "L1 / LB"], ["0x0020", "R1 / RB"],
+    ["0x0040", "L2 / LT (click)"], ["0x0080", "R2 / RT (click)"],
+    ["0x0100", "L3 (left stick click)"], ["0x0200", "R3 (right stick click)"],
+]
+# Digital functions on the dozer: (#define, label, default mask)
+GP_FUNCTIONS = [
+    ["GP_BTN_HORN", "Horn", "0x0002"],
+    ["GP_BTN_ENGINE", "Engine start / stop", "0x0008"],
+    ["GP_BTN_LIGHTS", "Lights", "0x0001"],
+    ["GP_BTN_HILO", "Hi / Lo range", "0x0004"],
+]
+# Freely-mappable implement outputs (the dozer's spare servo pins)
+GP_OUTPUTS = [
+    ["BLADE", "Blade lift (GPIO33)"],
+    ["TILT", "Blade tilt (GPIO32)"],
+    ["ANGLE", "Blade angle (GPIO14)"],
+    ["RIPPER", "Ripper (GPIO27)"],
+]
+GP_SOURCES = [
+    [0, "Unassigned"], [1, "Left stick — left/right"], [2, "Left stick — up/down"],
+    [3, "Right stick — left/right"], [4, "Right stick — up/down"], [5, "L2 trigger"],
+    [6, "R2 trigger"], [7, "Triggers (R2 − L2)"], [8, "Button (hold)"], [9, "Button (toggle)"],
+]
+GP_SERVO_N = 4  # CH1..CH4 endpoints shown in the Controls tab (map to servoMin/Center/Max[0..3])
+
+
+def _gp_norm_mask(v, default="0x0000"):
+    try:
+        return "0x%04X" % (int(str(v).strip(), 0) & 0xFFFF)
+    except Exception:
+        return default
+
+
+def _read_gp_defines():
+    out = {}
+    if os.path.isfile(GP_CONFIG_PATH):
+        with open(GP_CONFIG_PATH, encoding="utf-8", errors="replace") as f:
+            for m in re.finditer(r"^\s*#define\s+(GP_\w+)\s+(\S+)", f.read(), re.MULTILINE):
+                out[m.group(1)] = m.group(2)
+    return out
+
+
+def _read_servo_array(text, name):
+    m = re.search(name + r"\s*\[\s*\d*\s*\]\s*=\s*\{([^}]+)\}", text)
+    return [int(x) for x in re.findall(r"\d+", m.group(1))] if m else []
+
+
+def read_servo_endpoints():
+    with open(CONFIG_PATH, encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    lo = _read_servo_array(text, "servoMin")
+    ce = _read_servo_array(text, "servoCenter")
+    hi = _read_servo_array(text, "servoMax")
+    vals = {}
+    for n in range(GP_SERVO_N):
+        if n < len(lo): vals["CH%dL" % (n + 1)] = lo[n]
+        if n < len(ce): vals["CH%dC" % (n + 1)] = ce[n]
+        if n < len(hi): vals["CH%dR" % (n + 1)] = hi[n]
+    return vals
+
+
+def write_servo_endpoints(vals):
+    with open(CONFIG_PATH, encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    lo = _read_servo_array(text, "servoMin")
+    ce = _read_servo_array(text, "servoCenter")
+    hi = _read_servo_array(text, "servoMax")
+    for n in range(GP_SERVO_N):
+        for suffix, arr in (("L", lo), ("C", ce), ("R", hi)):
+            k = "CH%d%s" % (n + 1, suffix)
+            if k in vals and n < len(arr):
+                arr[n] = max(500, min(2500, int(vals[k])))
+    for name, arr in (("servoMin", lo), ("servoCenter", ce), ("servoMax", hi)):
+        if arr:
+            text = re.sub(r"(" + name + r"\s*\[\s*\d*\s*\]\s*=\s*\{)[^}]+(\})",
+                          lambda m, a=arr: m.group(1) + ", ".join(str(x) for x in a) + m.group(2), text)
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def read_gamepad_config():
+    d = _read_gp_defines()
+    cfg = read_config()
+    buttons = {name: _gp_norm_mask(d.get(name, dflt), _gp_norm_mask(dflt))
+               for name, _l, dflt in GP_FUNCTIONS}
+    return {
+        "mode": "gamepad" if cfg.get("rcProtocol") == "GAMEPAD_MODE" else "webui",
+        "prevComm": "IBUS_COMMUNICATION",
+        "tankmix": int(d.get("GP_TANKMIX", "1")) != 0,
+        "rumble": int(d.get("GP_RUMBLE", "0")) != 0,
+        "outputs": {name: {
+            "src": int(d.get("GP_%s_SRC" % name, "0")),
+            "btn": _gp_norm_mask(d.get("GP_%s_BTN" % name, "0x0000"), "0x0000"),
+            "min": int(d.get("GP_%s_MIN" % name, "1000")),
+            "center": int(d.get("GP_%s_CENTER" % name, "1500")),
+            "max": int(d.get("GP_%s_MAX" % name, "2000")),
+        } for name, _l in GP_OUTPUTS},
+        "sourceChoices": GP_SOURCES, "outputList": GP_OUTPUTS,
+        "steerSource": 1 if int(d.get("GP_STEER_SOURCE", "1")) else 0,
+        "steerInvert": int(d.get("GP_STEER_INVERT", "0")) != 0,
+        "throttleInvert": int(d.get("GP_THROTTLE_INVERT", "0")) != 0,
+        "steerDeadzone": int(d.get("GP_STEER_DEADZONE", "60")),
+        "throttleDeadzone": int(d.get("GP_THROTTLE_DEADZONE", "80")),
+        "buttons": buttons, "servos": read_servo_endpoints(), "servoProfile": "config.h",
+        "buttonChoices": GP_BUTTON_CHOICES, "functions": GP_FUNCTIONS,
+    }
+
+
+def write_gamepad_config(req):
+    def i(key, default):
+        try:
+            return int(req.get(key, default))
+        except Exception:
+            return default
+    buttons = req.get("buttons") or {}
+    outs = req.get("outputs") or {}
+    lines = [
+        "// AUTO-GENERATED by the Controls tab — do not edit by hand. Included by src/gamepad.h.",
+        "#define GP_TANKMIX %d" % (1 if req.get("tankmix") else 0),
+        "#define GP_RUMBLE %d" % (1 if req.get("rumble") else 0),
+        "#define GP_STEER_SOURCE %d" % (1 if i("steerSource", 1) else 0),
+        "#define GP_STEER_INVERT %d" % (1 if req.get("steerInvert") else 0),
+        "#define GP_THROTTLE_INVERT %d" % (1 if req.get("throttleInvert") else 0),
+        "#define GP_STEER_DEADZONE %d" % i("steerDeadzone", 60),
+        "#define GP_THROTTLE_DEADZONE %d" % i("throttleDeadzone", 80),
+        "",
+    ]
+    for name, _l, dflt in GP_FUNCTIONS:
+        lines.append("#define %s %s" % (name, _gp_norm_mask(buttons.get(name, dflt), dflt)))
+    lines.append("")
+    for name, _l in GP_OUTPUTS:
+        o = outs.get(name) or {}
+        def oi(k, dv):
+            try:
+                return int(o.get(k, dv))
+            except Exception:
+                return dv
+        lines += [
+            "#define GP_%s_SRC %d" % (name, oi("src", 0)),
+            "#define GP_%s_BTN %s" % (name, _gp_norm_mask(o.get("btn", "0x0000"), "0x0000")),
+            "#define GP_%s_MIN %d" % (name, oi("min", 1000)),
+            "#define GP_%s_CENTER %d" % (name, oi("center", 1500)),
+            "#define GP_%s_MAX %d" % (name, oi("max", 2000)),
+            "",
+        ]
+    with open(GP_CONFIG_PATH, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+    # Mode: gamepad <-> RC input source (reuses write_config's rcProtocol handling).
+    full = read_config()
+    full["rcProtocol"] = "GAMEPAD_MODE" if req.get("mode") == "gamepad" else \
+        (req.get("prevComm") or "IBUS_COMMUNICATION")
+    write_config(full)
+
+    servos = {k: v for k, v in (req.get("servos") or {}).items() if re.match(r"CH\d[LCR]$", k)}
+    if servos:
+        write_servo_endpoints(servos)
+
+
 # ─── HTTP Handler ────────────────────────────────────────────────────────────
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -1318,6 +1481,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/schema":
             try:
                 self._json({"ok": True, "schema": spa_schema()})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/gamepad_config":
+            try:
+                self._json({"ok": True, "config": read_gamepad_config()})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
         elif path == "/ping":
@@ -1393,6 +1561,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/save":
             try:
                 spa_save(json.loads(body)); self._json({"ok": True})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+            return
+        if path == "/gamepad_config":
+            try:
+                write_gamepad_config(json.loads(body))
+                self._json({"ok": True, "config": read_gamepad_config()})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
             return

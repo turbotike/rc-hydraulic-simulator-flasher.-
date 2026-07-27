@@ -74,6 +74,7 @@ function renderTabBar() {
   };
   for (const t of allTabs()) add(t.file, esc(t.label));
   add(FORGE, "🔊 Sound Forge");
+  add(GAMEPAD, "🎮 Controls");
   add(FLASH, "⚡ Flash");
 }
 
