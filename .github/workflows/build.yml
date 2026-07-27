@@ -1,0 +1,100 @@
+name: Build desktop apps
+
+# Builds the double-click RC Hydraulic Configurator for Windows AND macOS.
+#  • "Run workflow" on the Actions tab builds anytime (downloads under Artifacts).
+#  • Pushing a version tag like v1.0.0 also publishes a GitHub Release with both zips.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows
+            binary: RC Hydraulic Configurator.exe
+            bundle: RC-Hydraulic-Configurator-Windows
+            pyi_args: "--noconsole"
+          - os: macos-latest
+            label: macOS
+            binary: RC Hydraulic Configurator
+            bundle: RC-Hydraulic-Configurator-macOS
+            pyi_args: "--target-arch universal2"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # 3.11 (not 3.12): esp32 core 1.0.6's esptool.py 3.0 still imports distutils.
+          python-version: '3.11'
+
+      - name: Install PyInstaller
+        run: python -m pip install --upgrade pyinstaller certifi pyserial
+
+      - name: Build one-file app
+        run: pyinstaller --onefile ${{ matrix.pyi_args }} --collect-data certifi --collect-all serial --name "RC Hydraulic Configurator" configure.py
+
+      - name: Assemble ready-to-run bundle
+        shell: bash
+        run: |
+          set -e
+          mkdir staging
+          # Runtime files the flasher reads next to the exe (frozen-aware PROJECT_DIR),
+          # plus a Python-fallback launcher.
+          cp -r src web libraries README.md configure.py platformio.ini partitions_custom.csv staging/ 2>/dev/null || true
+          cp start_webui.bat start_webui.command staging/ 2>/dev/null || true
+          cp "dist/${{ matrix.binary }}" staging/
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            chmod +x "staging/${{ matrix.binary }}"
+            L="staging/Start RC Hydraulic Configurator.command"
+            printf '%s\n' \
+              '#!/bin/bash' \
+              'cd "$(dirname "$0")"' \
+              'xattr -dr com.apple.quarantine "./RC Hydraulic Configurator" 2>/dev/null || true' \
+              'exec "./RC Hydraulic Configurator"' > "$L"
+            chmod +x "$L"
+          fi
+
+      - name: Zip bundle
+        shell: bash
+        run: |
+          cd staging
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a -tzip "../${{ matrix.bundle }}.zip" . >/dev/null
+          else
+            zip -r -y "../${{ matrix.bundle }}.zip" . >/dev/null
+          fi
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.bundle }}
+          path: ${{ matrix.bundle }}.zip
+
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dl
+      - name: Attach zips to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dl/**/*.zip
+          generate_release_notes: true

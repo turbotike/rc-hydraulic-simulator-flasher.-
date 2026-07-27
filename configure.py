@@ -21,7 +21,12 @@ import glob
 import time
 
 PORT = 8080
-PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+# When frozen (PyInstaller --onefile), the bundle's src/web/libraries sit next to the
+# .exe, not in the temp _MEIPASS extraction dir — so resolve paths from the executable.
+if getattr(sys, "frozen", False):
+    PROJECT_DIR = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(PROJECT_DIR, "src", "config.h")
 SOUNDS_DIR = os.path.join(PROJECT_DIR, "src", "sounds")
 VEHICLES_DIR = os.path.join(PROJECT_DIR, "vehicles")
