@@ -99,6 +99,15 @@ function controlInput(file, c) {
       else recordChange(file, c.name, { kind: "flag", enabled: inp.checked });
     };
     sw.appendChild(inp); sw.appendChild(el("span", "slider-ui")); wrap.appendChild(sw);
+  } else if (c.control === "select") {
+    const sel = el("select");
+    for (const o of (c.options || [])) {
+      const op = el("option"); op.value = o.value; op.textContent = o.label;
+      if (String(eff.value) === String(o.value)) op.selected = true;
+      sel.appendChild(op);
+    }
+    sel.onchange = () => recordChange(file, c.name, { kind: c.saveKind || "select", value: sel.value });
+    wrap.appendChild(sel);
   } else if (c.control === "slider") {
     const valLbl = el("span", "val", esc(eff.value) + esc(c.suffix || ""));
     const inp = el("input"); inp.type = "range"; inp.min = c.min; inp.max = c.max; inp.step = c.step; inp.value = eff.value;

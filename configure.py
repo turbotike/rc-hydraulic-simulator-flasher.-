@@ -1182,6 +1182,67 @@ def push_channels_serial(port, channels, settings=None, reversed_chs=None, enabl
         return {"ok": False, "error": str(e), "log": log}
 
 
+# ─── SPA adapter: serve the DIYGuy web/ SPA against this single-config firmware ─
+WEB_DIR = os.path.join(PROJECT_DIR, "web")
+
+def spa_schema():
+    """Build the app.js /api/schema from config.h (via read_config)."""
+    cfg = read_config()
+
+    def sel(name, label, value, opts, desc=""):
+        return {"name": name, "label": label, "desc": desc, "control": "select",
+                "saveKind": "select", "value": value,
+                "options": [{"value": v, "label": l} for v, l in opts]}
+
+    def sld(name, label, value, mn, mx, step=1, suffix="", desc=""):
+        return {"name": name, "label": label, "desc": desc, "control": "slider",
+                "saveKind": "num", "value": value, "min": mn, "max": mx,
+                "step": step, "suffix": suffix}
+
+    machine = {"file": "config.h", "label": "Machine", "controls": [
+        sel("machineType", "Machine type", cfg.get("machineType"),
+            [("EXCAVATOR_MODE", "Excavator"), ("LOADER_MODE", "Loader"), ("CRANE_MODE", "Crane"),
+             ("DOZER_MODE", "Dozer"), ("SKIDSTEER_MODE", "Skid Steer"), ("GRADER_MODE", "Grader")],
+            "Which machine this firmware drives."),
+        sel("rcProtocol", "Input source", cfg.get("rcProtocol"),
+            [("SBUS_COMMUNICATION", "SBUS"), ("IBUS_COMMUNICATION", "IBUS"),
+             ("SUMD_COMMUNICATION", "SUMD"), ("PPM_COMMUNICATION", "PPM"),
+             ("PWM_COMMUNICATION", "PWM"), ("GAMEPAD_MODE", "🎮 Gamepad (PS4/PS5/Xbox)")],
+            "Gamepad drives over Bluetooth — one radio, so pick Gamepad or an RC bus."),
+        sel("driveMode", "Dozer drive", cfg.get("driveMode"),
+            [("DRIVE_SINGLE_STICK_MIX", "Single joystick (mixed to both tracks)"),
+             ("DRIVE_DUAL_STICK", "Dual stick (one per track)")],
+            "How the tracks are driven (dozer)."),
+    ]}
+
+    # Levels tab: every volatile volume/percentage read_config found.
+    lvl = []
+    for k, v in cfg.items():
+        if isinstance(v, int) and ("Volume" in k or k == "masterVolume"):
+            lvl.append(sld(k, k.replace("VolumePercentage", "").replace("Volume", " volume"),
+                           v, 0, 300, 5, "%"))
+    levels = {"file": "config.h", "label": "Levels", "controls": sorted(lvl, key=lambda c: c["label"])}
+
+    tabs = [machine]
+    if levels["controls"]:
+        tabs.append(levels)
+    return {"vehicles": [], "currentVehicle": None, "vehicleTab": None,
+            "tabs": tabs, "soundChoices": [], "presets": []}
+
+def spa_save(payload):
+    """Translate app.js's {file:{name:{kind,value|enabled}}} into a merged write_config()."""
+    full = read_config()
+    for _file, fields in (payload or {}).items():
+        for name, p in (fields or {}).items():
+            if name.startswith("__"):
+                continue
+            if "value" in p:
+                full[name] = p["value"]
+            elif "enabled" in p:
+                full[name] = "true" if p["enabled"] else "false"
+    write_config(full)
+
+
 # ─── HTTP Handler ────────────────────────────────────────────────────────────
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -1208,10 +1269,59 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _serve_file(self, fpath, ctype):
+        if not os.path.isfile(fpath):
+            self.send_error(404); return
+        with open(fpath, "rb") as f:
+            data = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self._cors(); self.end_headers()
+        self.wfile.write(data)
+
     def do_GET(self):
         path = urllib.parse.urlparse(self.path).path
+        # ── DIYGuy SPA (CAT-yellow) ──
         if path == "/" or path == "/index.html":
-            self._html(HTML_PAGE)
+            self._serve_file(os.path.join(WEB_DIR, "index.html"), "text/html; charset=utf-8")
+        elif path == "/classic":
+            self._html(HTML_PAGE)  # original embedded UI, kept as fallback
+        elif path.startswith("/web/"):
+            fn = os.path.basename(path)
+            ctype = {"js": "text/javascript", "css": "text/css", "png": "image/png",
+                     "html": "text/html"}.get(fn.rsplit(".", 1)[-1], "application/octet-stream")
+            self._serve_file(os.path.join(WEB_DIR, fn), ctype)
+        elif path == "/api/schema":
+            try:
+                self._json({"ok": True, "schema": spa_schema()})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+        elif path == "/ping":
+            self._json({"ok": True})
+        elif path == "/native_ports":
+            self._json({"ports": [{"address": p.get("port"), "likely": False}
+                                  for p in list_serial_ports()]})
+        elif path == "/get_volume":
+            v = read_config().get("masterVolume", 100)
+            self._json({"ok": True, "volume": v, "potOverride": False})
+        elif path == "/all_sounds":
+            self._json({"ok": True, "sounds": scan_all_sounds()})
+        elif path.startswith("/sound_pcm/"):
+            fn = os.path.basename(urllib.parse.unquote(path[len("/sound_pcm/"):]))
+            fp = os.path.join(SOUNDS_DIR, fn)
+            if os.path.isfile(fp):
+                d = parse_sound_header(fp)
+                self._json({"ok": True, "samples": d["samples"], "sampleRate": d["sampleRate"]})
+            else:
+                self._json({"ok": False, "error": "not found"}, 404)
+        elif path.startswith("/sound_text/"):
+            fn = os.path.basename(urllib.parse.unquote(path[len("/sound_text/"):]))
+            fp = os.path.join(SOUNDS_DIR, fn)
+            if os.path.isfile(fp):
+                self._json({"ok": True, "text": open(fp, encoding="utf-8", errors="replace").read()})
+            else:
+                self._json({"ok": False, "error": "not found"}, 404)
         elif path == "/api/config":
             cfg = read_config()
             cfg["soundFiles"] = list_sound_files()
@@ -1255,6 +1365,77 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = urllib.parse.urlparse(self.path).path
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length).decode("utf-8") if length else "{}"
+
+        # ── DIYGuy SPA endpoints ──
+        if path == "/save":
+            try:
+                spa_save(json.loads(body)); self._json({"ok": True})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+            return
+        if path == "/set_volume":
+            try:
+                full = read_config(); full["masterVolume"] = int(json.loads(body).get("volume", 100))
+                write_config(full); self._json({"ok": True})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+            return
+        if path == "/set_vol_pot_override":
+            self._json({"ok": True}); return
+        if path == "/quit":
+            self._json({"ok": True})
+            threading.Timer(0.3, lambda: os._exit(0)).start()
+            return
+        if path == "/install_header":
+            try:
+                d = json.loads(body)
+                fn = os.path.basename(d.get("filename", ""))
+                text = d.get("text", "")
+                if not re.match(r'^[a-zA-Z0-9_]+\.h$', fn) or not text:
+                    self._json({"ok": False, "error": "bad filename/content"}, 400); return
+                with open(os.path.join(SOUNDS_DIR, fn), "w", encoding="utf-8") as f:
+                    f.write(text)
+                self._json({"ok": True, "file": fn})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+            return
+        if path == "/run":
+            global build_running
+            data = json.loads(body) if body.strip() else {}
+            upload = (data.get("cmd") == "flash")
+            port = data.get("port") or None
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self._cors(); self.end_headers()
+
+            def w(s):
+                try:
+                    self.wfile.write(s.encode("utf-8", "replace")); self.wfile.flush()
+                except Exception:
+                    pass
+
+            th = threading.Thread(target=run_build, args=(upload, port), daemon=True)
+            th.start()
+            time.sleep(0.3)  # let run_build initialise build_log / build_running
+            sent = 0
+            while True:
+                cur = list(build_log)
+                if sent > len(cur):
+                    sent = 0
+                if sent < len(cur):
+                    for line in cur[sent:]:
+                        w(line + "\n")
+                    sent = len(cur)
+                if not build_running and sent >= len(cur):
+                    break
+                time.sleep(0.15)
+            rc = 1
+            for l in build_log[-8:]:
+                m = re.search(r'Exit code:\s*(-?\d+)', l)
+                if m:
+                    rc = int(m.group(1))
+            w("\n--- DONE (exit %d) ---\n" % (0 if rc == 0 else 1))
+            return
 
         if path == "/api/save":
             try:
