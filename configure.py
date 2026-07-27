@@ -1204,44 +1204,62 @@ def spa_schema():
                 "saveKind": "num", "value": value, "min": mn, "max": mx,
                 "step": step, "suffix": suffix}
 
+    def pretty(k):
+        s = k.replace("VolumePercentage", "").replace("Volume", "")
+        s = re.sub(r'([a-z0-9])([A-Z])', r'\1 \2', s).strip()
+        return (s[:1].upper() + s[1:]) or k
+
     machine = {"file": "config.h", "label": "Machine", "controls": [
         sel("machineType", "Machine type", cfg.get("machineType"),
             [("EXCAVATOR_MODE", "Excavator"), ("LOADER_MODE", "Loader"), ("CRANE_MODE", "Crane"),
              ("DOZER_MODE", "Dozer"), ("SKIDSTEER_MODE", "Skid Steer"), ("GRADER_MODE", "Grader")],
             "Which machine this firmware drives."),
         sel("rcProtocol", "Input source", cfg.get("rcProtocol"),
-            [("SBUS_COMMUNICATION", "SBUS"), ("IBUS_COMMUNICATION", "IBUS"),
-             ("SUMD_COMMUNICATION", "SUMD"), ("PPM_COMMUNICATION", "PPM"),
-             ("PWM_COMMUNICATION", "PWM"), ("GAMEPAD_MODE", "🎮 Gamepad (PS4/PS5/Xbox)")],
-            "Gamepad drives over Bluetooth — one radio, so pick Gamepad or an RC bus."),
+            [("IBUS_COMMUNICATION", "IBUS"), ("SBUS_COMMUNICATION", "SBUS"),
+             ("PWM_COMMUNICATION", "PWM"), ("GAMEPAD_MODE", "🎮 Gamepad (PS4 / PS5 / Xbox)")],
+            "How the controller receives input. Gamepad is Bluetooth — one radio, so it's the pad OR an RC bus, not both."),
         sel("driveMode", "Dozer drive", cfg.get("driveMode"),
             [("DRIVE_SINGLE_STICK_MIX", "Single joystick (mixed to both tracks)"),
              ("DRIVE_DUAL_STICK", "Dual stick (one per track)")],
-            "How the tracks are driven (dozer)."),
+            "How the tracks are driven."),
     ]}
 
-    # Levels tab: every volatile volume/percentage read_config found.
+    # Levels tab: the per-sound volume percentages (nice labels), master first.
     lvl = []
-    for k, v in cfg.items():
-        if isinstance(v, int) and ("Volume" in k or k == "masterVolume"):
-            lvl.append(sld(k, k.replace("VolumePercentage", "").replace("Volume", " volume"),
-                           v, 0, 300, 5, "%"))
-    levels = {"file": "config.h", "label": "Levels", "controls": sorted(lvl, key=lambda c: c["label"])}
+    if isinstance(cfg.get("masterVolume"), int):
+        lvl.append(sld("masterVolume", "Master volume", cfg["masterVolume"], 0, 300, 5, "%"))
+    for k, v in sorted(cfg.items()):
+        if isinstance(v, int) and k.endswith("VolumePercentage"):
+            lvl.append(sld(k, pretty(k), v, 0, 300, 5, "%"))
+    levels = {"file": "config.h", "label": "Levels", "controls": lvl}
 
-    tabs = [machine]
-    if levels["controls"]:
-        tabs.append(levels)
+    # Sound Forge choosers — the active machine's sound slots + the whole library.
+    sounds = cfg.get("sounds", {}) or {}
+    sopts = [{"file": s["file"], "label": s["label"]} for s in scan_all_sounds()]
+    slot_titles = [("startSound", "Engine start"), ("idleSound", "Engine idle"),
+                   ("revSound", "Engine rev"), ("knockSound", "Diesel knock"),
+                   ("turboSound", "Turbo"), ("hydraulicPumpSound", "Hydraulic pump"),
+                   ("hydraulicFlowSound", "Hydraulic flow"), ("trackRattleSound", "Track rattle"),
+                   ("bucketRattleSound", "Bucket rattle"), ("hornSound", "Horn"),
+                   ("reversingSound", "Reversing beep"), ("sirenSound", "Siren"),
+                   ("brakeSound", "Brake")]
+    sound_choices = [{"key": slot, "title": title, "options": sopts,
+                      "selected": sounds.get(slot), "category": "", "varPrefix": ""}
+                     for slot, title in slot_titles if sounds.get(slot)]
+
     return {"vehicles": [], "currentVehicle": None, "vehicleTab": None,
-            "tabs": tabs, "soundChoices": [], "presets": []}
+            "tabs": [machine, levels], "soundChoices": sound_choices, "presets": []}
 
 def spa_save(payload):
     """Translate app.js's {file:{name:{kind,value|enabled}}} into a merged write_config()."""
     full = read_config()
     for _file, fields in (payload or {}).items():
         for name, p in (fields or {}).items():
-            if name.startswith("__"):
+            if name.startswith("__sound__"):          # Sound Forge slot change
+                full.setdefault("sounds", {})[name[len("__sound__"):]] = p.get("value")
+            elif name.startswith("__"):
                 continue
-            if "value" in p:
+            elif "value" in p:
                 full[name] = p["value"]
             elif "enabled" in p:
                 full[name] = "true" if p["enabled"] else "false"
