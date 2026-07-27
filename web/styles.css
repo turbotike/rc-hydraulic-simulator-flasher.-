@@ -36,9 +36,9 @@ body {
   font: 15px/1.55 "Trebuchet MS", "Comic Sans MS", "Segoe UI", system-ui, sans-serif;
   display: flex; flex-direction: column;
   background:
-    radial-gradient(1100px 600px at 12% -10%, rgba(57,255,20,.26), transparent 60%),
-    radial-gradient(1000px 700px at 100% 0%, rgba(250,255,0,.20), transparent 55%),
-    radial-gradient(900px 800px at 50% 120%, rgba(143,255,90,.26), transparent 60%),
+    radial-gradient(1100px 600px at 12% -10%, rgba(255,203,5,.16), transparent 60%),
+    radial-gradient(1000px 700px at 100% 0%, rgba(255,210,59,.12), transparent 55%),
+    radial-gradient(900px 800px at 50% 120%, rgba(255,160,40,.12), transparent 60%),
     linear-gradient(160deg, var(--bg0), var(--bg1));
   background-attachment: fixed;
 }
@@ -46,8 +46,8 @@ body {
 body::before {
   content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background-image:
-    linear-gradient(rgba(57,255,20,.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(250,255,0,.07) 1px, transparent 1px);
+    linear-gradient(rgba(255,203,5,.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,203,5,.05) 1px, transparent 1px);
   background-size: 44px 44px;
   mask-image: linear-gradient(transparent, #000 35%);
 }
