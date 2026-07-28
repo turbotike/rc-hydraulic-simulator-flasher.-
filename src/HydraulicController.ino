@@ -1285,6 +1285,45 @@ void reliefLogic() {
 }
 #endif // DOZER_MODE
 
+#if defined GAMEPAD_MODE
+// ── Gamepad engine-feel rumble ────────────────────────────────────────────────────────────────
+// Feel the dozer through the pad: an idle purr while running, the strong motor follows total
+// hydraulic load (drive + implements), and a hard bump the moment the relief cracks or the engine
+// lugs under a heavy push. Self-throttled to ~8 Hz so it doesn't flood Bluetooth. GP_RUMBLE off =
+// save the controller's battery.
+void updateGamepadRumble() {
+#if GP_RUMBLE
+  if (!gpController || !gpController->isConnected() || !gpController->isGamepad()) return;
+
+  static uint32_t lastMs = 0;
+  static bool prevStrain = false;
+  bool strain = reliefActive || engineLugging;
+
+  // One immediate hard bump the instant the relief cracks / the engine bogs.
+  if (strain && !prevStrain) {
+    prevStrain = strain;
+    gpController->playDualRumble(0, 130, 60, 255);
+    lastMs = millis();
+    return;
+  }
+  prevStrain = strain;
+
+  if (millis() - lastMs < 120) return; // ~8 Hz refresh
+  lastMs = millis();
+
+  uint8_t weak = 0, strong = 0;
+  if (engineState == STARTING) { weak = 90; strong = 140; } // cranking shudder
+  else if (engineRunning) {
+    int load = constrain(totalFlowDemand, (int16_t)0, (int16_t)100); // 0..100 pump demand
+    weak = 26 + (uint8_t)(load * 30 / 100);                          // idle purr + buzz under load
+    strong = (uint8_t)(load * 200 / 100);                           // load -> up to ~200
+    if (strain) { weak = 60; strong = 255; }                        // sustained strain = full bump
+  }
+  gpController->playDualRumble(0, 160, weak, strong); // duration > refresh -> continuous
+#endif
+}
+#endif // GAMEPAD_MODE
+
 // ════════════════════════════════════════════════════════════════
 // SERVO OUTPUT (MCPWM)
 // ════════════════════════════════════════════════════════════════
@@ -2185,6 +2224,10 @@ void loop() {
 
   // Servo output
   mcpwmOutput();
+
+#if defined GAMEPAD_MODE
+  updateGamepadRumble(); // engine-feel haptics (only if GP_RUMBLE)
+#endif
 
 #ifdef DEBUG_RC
   static unsigned long lastDebug = millis();

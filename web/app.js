@@ -590,7 +590,7 @@ function buildGamepadUI(root) {
     const omcard = el("div", "card");
     omcard.appendChild(el("div", "sound-cat", "Output mapping"));
     omcard.appendChild(el("p", "pane-sub", "Assign each spare output to any control — a stick, a trigger, or a button (hold or toggle). Steering (CH1) and throttle (ESC) keep their jobs. Enabling an output takes over that pin from its stock function (e.g. AUX/GPIO32 = 3rd brake light / coupler switch)."));
-    omcard.appendChild(el("p", "hint-row", "🎛️ Teach mode (set endpoints on the truck, no laptop): on the controller, hold L1 + R1 + Options ~1s to enter. D-pad ◂ ▸ picks the output, right stick moves the servo live, then ✕ = min, ▢ = center, △ = max. Hold L1 + R1 + Options again to save (it's stored on the chip). The values below are the starting points."));
+    omcard.appendChild(el("p", "hint-row", "🎛️ Endpoints shape each output's travel: min / center / max (µs). For a stick or trigger the value tracks the input across that range; for a button, min = released and max = pressed. Blade tilt and angle are unassigned by default — pick a control here to bring GPIO32 / GPIO14 to life."));
     c.outputs = c.outputs || {};
     for (const [key, label] of (c.outputList || [])) {
       const o = c.outputs[key] || (c.outputs[key] = { src: 0, btn: "0x0000", min: 1000, center: 1500, max: 2000 });
