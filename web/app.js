@@ -263,13 +263,8 @@ function renderForgePane() {
   vcard.innerHTML = `
     <div class="row">
       <strong style="min-width:130px">Master Volume</strong>
-      <input type="range" id="masterVol" min="0" max="250" step="5" value="100">
+      <input type="range" id="masterVol" min="0" max="300" step="5" value="100">
       <span class="val" id="masterVolVal">100%</span>
-    </div>
-    <div class="row" style="margin-top:14px">
-      <strong style="min-width:130px">Volume Pot Override</strong>
-      <label class="switch"><input type="checkbox" id="potOverride"><span class="slider-ui"></span></label>
-      <span class="pane-sub" style="margin:0">Ignore the hardware volume knob and use this value.</span>
     </div>`;
   pane.appendChild(vcard);
 
@@ -448,9 +443,8 @@ function wireForgePane() {
   // Master volume
   fetch("/get_volume").then((r) => r.json()).then((j) => {
     if (!j.ok) return;
-    const vol = $("masterVol"), val = $("masterVolVal"), pot = $("potOverride");
+    const vol = $("masterVol"), val = $("masterVolVal");
     if (vol) { vol.value = j.volume; val.textContent = j.volume + "%"; }
-    if (pot) pot.checked = !!j.potOverride;
   }).catch(() => {});
   let volTimer;
   $("masterVol").oninput = (e) => {
@@ -458,7 +452,6 @@ function wireForgePane() {
     clearTimeout(volTimer);
     volTimer = setTimeout(() => post("/set_volume", { volume: parseInt(e.target.value, 10) }).then(() => toast("Volume saved.", "ok")).catch((err) => toast(err.message, "err")), 500);
   };
-  $("potOverride").onchange = (e) => post("/set_vol_pot_override", { enabled: e.target.checked }).then(() => toast("Saved.", "ok")).catch((err) => toast(err.message, "err"));
 }
 
 function renderFlashPane() {

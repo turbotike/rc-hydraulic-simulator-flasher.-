@@ -358,8 +358,10 @@ def write_config(cfg):
     # Strip ALL previous auto-injected blocks before regenerating, so we don't
     # accumulate duplicates across saves. A block is the comment line plus all
     # following alias / include lines until the next blank line.
+    # The trailing \n* also eats each block's trailing blank line, otherwise one
+    # blank line leaked per slot on every save and the file grew unbounded.
     text = re.sub(
-        r'^// Auto-injected for \w+ \(was missing\)[^\n]*\n(?:(?:#include[^\n]*|const[^\n]*)\n)*',
+        r'^// Auto-injected for \w+ \(was missing\)[^\n]*\n(?:(?:#include[^\n]*|const[^\n]*)\n)*\n*',
         '', text, flags=re.MULTILINE)
 
     # Machine type
@@ -1495,7 +1497,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                   for p in list_serial_ports()]})
         elif path == "/get_volume":
             v = read_config().get("masterVolume", 100)
-            self._json({"ok": True, "volume": v, "potOverride": False})
+            self._json({"ok": True, "volume": v})
         elif path == "/all_sounds":
             self._json({"ok": True, "sounds": scan_all_sounds()})
         elif path.startswith("/sound_pcm/"):
@@ -1578,8 +1580,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
             return
-        if path == "/set_vol_pot_override":
-            self._json({"ok": True}); return
         if path == "/quit":
             self._json({"ok": True})
             threading.Timer(0.3, lambda: os._exit(0)).start()
