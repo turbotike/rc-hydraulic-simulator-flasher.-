@@ -482,13 +482,13 @@ function renderFlashPane() {
   return pane;
 }
 
-// ---- Controls (WiFi page vs game controller) ----
+// ---- Controls (RC transmitter vs game controller) ----
 function renderGamepadPane() {
   const pane = el("div", "tabpane");
   pane.innerHTML = `
     <h2 class="pane-title">🎮 Controls</h2>
-    <p class="pane-sub">Choose how you drive the truck. The ESP32 has one radio — so it's either the
-      phone tuning page over WiFi, <em>or</em> a Bluetooth game controller. Not both at once.</p>
+    <p class="pane-sub">Choose how you drive the machine — your RC transmitter, or a Bluetooth game
+      controller. Set it and flash; this is a set-and-go build with nothing to tune on the machine.</p>
     <div id="gpRoot"><div class="empty">Loading…</div></div>`;
   return pane;
 }
@@ -518,8 +518,8 @@ function buildGamepadUI(root) {
     return card;
   };
   modeWrap.append(
-    mk("webui", "📱", "WiFi tuning page", "Tune from your phone at 192.168.4.1. Drive with your normal RC transmitter."),
-    mk("gamepad", "🎮", "Game controller", "Drive with a PS4 / PS5 / Xbox pad over Bluetooth. (WiFi page turns off.)")
+    mk("webui", "🎚️", "RC transmitter", "Drive with your normal RC radio. Set the protocol on the Machine tab."),
+    mk("gamepad", "🎮", "Game controller", "Drive with a PS4 / PS5 / Xbox pad over Bluetooth.")
   );
   root.appendChild(modeWrap);
 
@@ -687,7 +687,7 @@ function buildGamepadUI(root) {
   root.appendChild(el("p", "pane-sub",
     c.mode === "gamepad"
       ? "Game-controller builds use the Bluepad32 ESP32 core (downloaded once on the first controller flash)."
-      : "Standard RC + WiFi build."));
+      : "Standard RC build — set-and-go, nothing to tune on the machine."));
 }
 
 function render() {

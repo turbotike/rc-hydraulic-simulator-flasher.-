@@ -1192,6 +1192,17 @@ def push_channels_serial(port, channels, settings=None, reversed_chs=None, enabl
 # ─── SPA adapter: serve the DIYGuy web/ SPA against this single-config firmware ─
 WEB_DIR = os.path.join(PROJECT_DIR, "web")
 
+# Volume sliders shown on the Levels tab — construction-machine relevant only, in a sensible
+# order. Anything not here (coupler, siren, gearshift, indicators, supercharger, cooling fan…)
+# is hidden from the UI; its config.h value is left untouched.
+CONSTRUCTION_LEVELS = [
+    "startVolumePercentage", "idleVolumePercentage", "revVolumePercentage",
+    "fullThrottleVolumePercentage", "dieselKnockVolumePercentage", "turboVolumePercentage",
+    "hydraulicPumpVolumePercentage", "hydraulicFlowVolumePercentage",
+    "trackRattleVolumePercentage", "bucketRattleVolumePercentage",
+    "hornVolumePercentage", "reversingVolumePercentage", "brakeVolumePercentage",
+]
+
 def spa_schema():
     """Build the app.js /api/schema from config.h (via read_config)."""
     cfg = read_config()
@@ -1226,16 +1237,19 @@ def spa_schema():
             "How the tracks are driven."),
     ]}
 
-    # Levels tab: the per-sound volume percentages (nice labels), master first.
+    # Levels tab: only the volumes that matter on construction equipment. The engine sound packs
+    # carry a lot of on-road-truck extras (coupler, siren, gearshift, indicators, supercharger…);
+    # they'd just clutter a set-and-go dozer, so we show a curated construction list in order.
     lvl = []
     if isinstance(cfg.get("masterVolume"), int):
         lvl.append(sld("masterVolume", "Master volume", cfg["masterVolume"], 0, 300, 5, "%"))
-    for k, v in sorted(cfg.items()):
-        if isinstance(v, int) and k.endswith("VolumePercentage"):
+    for k in CONSTRUCTION_LEVELS:
+        v = cfg.get(k)
+        if isinstance(v, int):
             lvl.append(sld(k, pretty(k), v, 0, 300, 5, "%"))
     levels = {"file": "config.h", "label": "Levels", "controls": lvl}
 
-    # Sound Forge choosers — the active machine's sound slots + the whole library.
+    # Sound Forge choosers — construction-relevant slots only (no siren/coupler/gearshift/etc.).
     sounds = cfg.get("sounds", {}) or {}
     sopts = [{"file": s["file"], "label": s["label"]} for s in scan_all_sounds()]
     slot_titles = [("startSound", "Engine start"), ("idleSound", "Engine idle"),
@@ -1243,8 +1257,7 @@ def spa_schema():
                    ("turboSound", "Turbo"), ("hydraulicPumpSound", "Hydraulic pump"),
                    ("hydraulicFlowSound", "Hydraulic flow"), ("trackRattleSound", "Track rattle"),
                    ("bucketRattleSound", "Bucket rattle"), ("hornSound", "Horn"),
-                   ("reversingSound", "Reversing beep"), ("sirenSound", "Siren"),
-                   ("brakeSound", "Brake")]
+                   ("reversingSound", "Reversing beep"), ("brakeSound", "Brake")]
     sound_choices = [{"key": slot, "title": title, "options": sopts,
                       "selected": sounds.get(slot), "category": "", "varPrefix": ""}
                      for slot, title in slot_titles if sounds.get(slot)]

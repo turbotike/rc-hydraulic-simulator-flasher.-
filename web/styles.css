@@ -15,41 +15,42 @@
   --green2: #ffe04a;
   --yellow: #ffd23b;
   --yellow2: #ffe04a;
-  --cyan: #00cfe0;
-  --pink: #ff8a3d;    /* warm amber instead of hot pink */
+  --cyan: #cfae4d;
+  --pink: #ffcb05;    /* labels -> clean CAT yellow (was orange) */
 
-  --ok: #46d17f;
+  --ok: #7bd17b;
   --err: #ff4d63;
-  --work: #00cfe0;
+  --work: #cfae4d;
 
-  --glow-green: 0 0 12px rgba(255,203,5,.65), 0 0 24px rgba(255,203,5,.3);
-  --glow-yellow: 0 0 12px rgba(255,210,59,.7), 0 0 24px rgba(255,210,59,.35);
-  --glow-pink: 0 0 12px rgba(255,138,61,.7), 0 0 24px rgba(255,138,61,.35);
-  /* bold, aggressive display font (like the logo) — cross-platform (Win + Mac) */
-  --display: "Impact", "Haettenschweiler", "Franklin Gothic Heavy", "Arial Narrow", system-ui, sans-serif;
-  --radius: 22px;
+  /* matte, industrial: glows toned right down to a soft edge, not neon */
+  --glow-green: 0 0 0 1px rgba(255,203,5,.25);
+  --glow-yellow: 0 0 0 1px rgba(255,210,59,.3);
+  --glow-pink: none;
+  /* bold condensed display (equipment-decal feel) + clean industrial body sans */
+  --display: "Bahnschrift", "Oswald", "Arial Narrow", "Franklin Gothic Heavy", "Impact", system-ui, sans-serif;
+  --body: "Segoe UI", "Inter", "Roboto", system-ui, -apple-system, Arial, sans-serif;
+  --radius: 10px;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body {
   color: var(--text);
-  font: 15px/1.55 "Trebuchet MS", "Comic Sans MS", "Segoe UI", system-ui, sans-serif;
+  font: 15px/1.55 var(--body);
   display: flex; flex-direction: column;
+  /* flat near-black, one very faint top glow — no colored haze */
   background:
-    radial-gradient(1100px 600px at 12% -10%, rgba(255,203,5,.16), transparent 60%),
-    radial-gradient(1000px 700px at 100% 0%, rgba(255,210,59,.12), transparent 55%),
-    radial-gradient(900px 800px at 50% 120%, rgba(255,160,40,.12), transparent 60%),
-    linear-gradient(160deg, var(--bg0), var(--bg1));
+    radial-gradient(1200px 500px at 50% -20%, rgba(255,203,5,.05), transparent 60%),
+    linear-gradient(180deg, var(--bg0), var(--bg1));
   background-attachment: fixed;
 }
-/* retro grid overlay */
+/* faint technical grid */
 body::before {
   content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background-image:
-    linear-gradient(rgba(255,203,5,.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,203,5,.05) 1px, transparent 1px);
-  background-size: 44px 44px;
-  mask-image: linear-gradient(transparent, #000 35%);
+    linear-gradient(rgba(255,203,5,.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,203,5,.03) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(transparent, #000 45%);
 }
 
 h1, h2, .brand { font-family: var(--display); letter-spacing: .5px; }
@@ -61,7 +62,7 @@ header {
   /* dark green-black so the now-transparent logo blends into the app (no black box) */
   background: linear-gradient(180deg, #12120c, #0a0a08);
   border-bottom: 2px solid var(--green);
-  box-shadow: 0 4px 24px rgba(255,203,5,.30);
+  box-shadow: 0 2px 10px rgba(0,0,0,.5);
 }
 /* logo sits inline in the header bar and fills it vertically */
 .brand { display: flex; align-items: center; }
@@ -76,16 +77,16 @@ header {
 
 select, input[type=number], input[type=text] {
   background: rgba(20,20,16,.7); color: var(--text);
-  border: 2px solid var(--line); border-radius: 999px;
+  border: 2px solid var(--line); border-radius: 6px;
   padding: 9px 14px; font-size: 14px; font-family: inherit;
 }
 select:focus, input:focus { outline: none; border-color: var(--green); box-shadow: var(--glow-green); }
 select { max-width: 280px; }
 
 button {
-  border: 0; border-radius: 999px; padding: 11px 20px; font-size: 14px; font-weight: 800;
+  border: 0; border-radius: 6px; padding: 11px 20px; font-size: 14px; font-weight: 700;
   cursor: pointer; color: var(--text);
-  font-family: "Trebuchet MS", "Segoe UI", Arial, system-ui, sans-serif;
+  font-family: var(--body);
   letter-spacing: .3px;
   background: rgba(42,40,28,.6); border: 2px solid var(--line);
   transition: transform .08s, box-shadow .15s, filter .15s;
@@ -98,7 +99,7 @@ button.primary {
   background: linear-gradient(135deg, var(--green), var(--yellow));
   box-shadow: var(--glow-green);
 }
-button.primary:hover:not(:disabled) { box-shadow: 0 0 18px rgba(255,203,5,.9), 0 0 34px rgba(255,210,59,.55); }
+button.primary:hover:not(:disabled) { filter: brightness(1.08); }
 button.quit { background: transparent; border-color: #5a2130; color: #ff6b81; padding: 9px 14px; }
 button.quit:hover:not(:disabled) { border-color: #ff4d6d; box-shadow: 0 0 14px rgba(255,77,109,.6); color: #ff4d6d; }
 
@@ -108,8 +109,8 @@ nav {
 }
 nav button.tab {
   background: rgba(30,28,20,.55); border: 2px solid var(--line);
-  border-radius: 999px; color: var(--muted); white-space: nowrap; padding: 9px 17px; font-weight: 800;
-  font-family: "Trebuchet MS", "Segoe UI", Arial, system-ui, sans-serif; letter-spacing: .3px; font-size: 14.5px;
+  border-radius: 6px; color: var(--muted); white-space: nowrap; padding: 9px 17px; font-weight: 700;
+  font-family: var(--body); letter-spacing: .3px; font-size: 14.5px;
 }
 nav button.tab:hover { color: var(--text); border-color: var(--yellow); box-shadow: var(--glow-yellow); }
 nav button.tab.active {
@@ -131,9 +132,9 @@ main { flex: 1; overflow: auto; padding: 24px; }
   background: var(--panel); margin-bottom: 12px; backdrop-filter: blur(4px);
   transition: border-color .15s, box-shadow .15s, transform .1s;
 }
-.ctrl:hover { border-color: var(--green); box-shadow: 0 0 16px rgba(255,203,5,.28); transform: translateY(-1px); }
+.ctrl:hover { border-color: var(--green); box-shadow: none; }
 .ctrl .meta { min-width: 0; }
-.ctrl .name { font-family: var(--display); text-transform: uppercase; letter-spacing: .8px; font-size: 17px; color: var(--pink); text-shadow: 0 0 8px rgba(255,138,61,.35); }
+.ctrl .name { font-family: var(--display); text-transform: uppercase; letter-spacing: .8px; font-size: 17px; color: var(--pink); }
 .ctrl .desc { color: var(--muted); font-size: 12.5px; }
 .ctrl .input { display: flex; align-items: center; gap: 14px; justify-self: end; }
 .ctrl .val {
