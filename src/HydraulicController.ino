@@ -1265,7 +1265,26 @@ void implementControl() {
 // ── Relief valve: a function at its end-stop, or total demand beyond the (engine-limited)
 //    pump capacity, "relieves" — the engine strains, the flow sound spikes, RPM lugs. ──
 void reliefLogic() {
-  totalFlowDemand = driveFlowDemand + implFlowDemand;
+  // Dig load (blade machines): if the blade is lowered AND you're driving forward, infer you're
+  // cutting and add engine load proportional to depth × forward push. Heuristic, not physics — it
+  // just makes "drop the blade and push" bog the machine the way it should.
+  int16_t digLoad = 0;
+#if defined DOZER_MODE || defined LOADER_MODE || defined GRADER_MODE || defined SKIDSTEER_MODE
+  if (digLoadGain > 0) {
+  #if MACHINE_TRACKED
+    int16_t fwd = (actualTrackL + actualTrackR) / 2;   // tracked: both tracks (+ = forward)
+  #else
+    int16_t fwd = actualTrackR;                        // wheeled: drive only (L is steer)
+  #endif
+    int16_t bladeDown = digBladeDownSign * valveCmd[0]; // > 0 when the blade is lowered
+    if (fwd > 40 && bladeDown > 40) {
+      int32_t dig = (int32_t)fwd * bladeDown / 500;     // depth × push, 0..~500
+      dig = dig * digLoadGain / 100;
+      digLoad = (int16_t)constrain(dig, (int32_t)0, (int32_t)digLoadCap);
+    }
+  }
+#endif
+  totalFlowDemand = driveFlowDemand + implFlowDemand + digLoad;
   int32_t cap = (int32_t)pumpFlowCapacity * max((int32_t)1, (int32_t)currentRpm)
               / max((int16_t)1, driveDroopRefRpm); // capacity falls as the engine bogs
   systemRelief = totalFlowDemand > cap;

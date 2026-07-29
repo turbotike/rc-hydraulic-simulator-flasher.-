@@ -85,6 +85,12 @@ int16_t maxSagRpm       = 220; // max rpm droop at full pump demand
 int16_t lugRpmThreshold = 150; // below this rpm under load → lugging (heavy strain)
 int16_t lugKnockBoost   = 40;  // extra engine strain when lugging
 
+// --- Dig load (blade machines): inferred cutting resistance = blade down + driving forward.
+//     Not physics — a heuristic that loads the engine so pushing a lowered blade bogs it. ---
+int16_t digLoadGain     = 40;  // 0 = off. Low-moderate. Higher = the cut fights back harder.
+int16_t digLoadCap      = 70;  // ceiling on the extra pump demand from cutting (of ~140 capacity)
+int8_t  digBladeDownSign = -1; // which blade valve sign means "lowered". Flip to +1 if it loads on raise.
+
 // --- Grader channels (wheeled: drive motor + frame articulation for steering) ---
 uint8_t CH_GR_BLADE    = 1;   // Blade lift (raise/lower moldboard)
 uint8_t CH_GR_CIRCLE   = 2;   // Circle rotation (moldboard angle)
