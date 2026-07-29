@@ -1320,6 +1320,16 @@ MACHINE_OUTPUTS = {
     "BACKHOE_MODE":   [["BLADE", "Boom (GPIO33)"], ["TILT", "Dipper (GPIO32)"],
                        ["ANGLE", "Bucket (GPIO14)"], ["RIPPER", "Swing (GPIO27)"]],
 }
+# The two drive outputs (GPIO13/12) per machine: tracked = two tracks, wheeled = drive + steer.
+MACHINE_DRIVE = {
+    "DOZER_MODE":     [["GPIO13", "Right track"], ["GPIO12", "Left track"]],
+    "EXCAVATOR_MODE": [["GPIO13", "Right track"], ["GPIO12", "Left track"]],
+    "SKIDSTEER_MODE": [["GPIO13", "Right track"], ["GPIO12", "Left track"]],
+    "LOADER_MODE":    [["GPIO13", "Drive motor (ESC)"], ["GPIO12", "Steer servo"]],
+    "GRADER_MODE":    [["GPIO13", "Drive motor (ESC)"], ["GPIO12", "Articulation steer"]],
+    "CRANE_MODE":     [["GPIO13", "Drive motor (ESC)"], ["GPIO12", "Steer servo"]],
+    "BACKHOE_MODE":   [["GPIO13", "Drive motor (ESC)"], ["GPIO12", "Steer servo"]],
+}
 GP_SOURCES = [
     [0, "Unassigned"], [1, "Left stick — left/right"], [2, "Left stick — up/down"],
     [3, "Right stick — left/right"], [4, "Right stick — up/down"], [5, "L2 trigger"],
@@ -1402,6 +1412,7 @@ def read_gamepad_config():
             "max": int(d.get("GP_%s_MAX" % name, "2000")),
         } for name, _l in output_list},
         "sourceChoices": GP_SOURCES, "outputList": output_list,
+        "driveOutputs": MACHINE_DRIVE.get(cfg.get("machineType"), MACHINE_DRIVE["DOZER_MODE"]),
         "steerSource": 1 if int(d.get("GP_STEER_SOURCE", "1")) else 0,
         "steerInvert": int(d.get("GP_STEER_INVERT", "0")) != 0,
         "throttleInvert": int(d.get("GP_THROTTLE_INVERT", "0")) != 0,

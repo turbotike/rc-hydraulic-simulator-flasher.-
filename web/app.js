@@ -528,6 +528,29 @@ function buildGamepadUI(root) {
     root.appendChild(el("div", "gpbadge", "⚠️ Experimental — controller support needs testing on real hardware."));
   }
 
+  // --- RC mode: read-only reference of what this machine's 6 outputs do ---
+  if (!gpOnly) {
+    const card = el("div", "card");
+    card.appendChild(el("div", "sound-cat", "This machine's 6 outputs"));
+    card.appendChild(el("p", "pane-sub", "With an RC transmitter, the ESP32 drives these six outputs for the machine picked on the Machine tab. Wire an ESC/servo to each pin; the drive outputs are handled automatically, the implements follow their sticks."));
+    const outRow = (pin, label) => {
+      const row = el("div", "ctrl");
+      const meta = el("div", "meta"); meta.appendChild(el("div", "name", esc(label)));
+      row.appendChild(meta);
+      const input = el("div", "input");
+      const tag = el("span", "val"); tag.textContent = pin; input.appendChild(tag);
+      row.appendChild(input);
+      return row;
+    };
+    for (const [pin, label] of (c.driveOutputs || [])) card.appendChild(outRow(pin, label));
+    for (const [key, label] of (c.outputList || [])) {
+      const m = String(label).match(/^(.*?)\s*\((GPIO\d+)\)\s*$/);
+      card.appendChild(outRow(m ? m[2] : "", m ? m[1] : label));
+    }
+    root.appendChild(card);
+    card.appendChild(el("p", "hint-row", "Want to drive it with a PS4/PS5/Xbox pad instead? Pick “Game controller” above to map every implement to a stick, trigger, or button."));
+  }
+
   // --- Button map (gamepad only) ---
   if (gpOnly) {
     const card = el("div", "card");
