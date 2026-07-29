@@ -242,7 +242,7 @@ void readGamepadCommands()
   // --- Engine throttle: dozers run at governed working RPM; the load model bogs it when digging. ---
   if (CH_THROTTLE > 0) pulseWidthRaw[CH_THROTTLE] = 2000;
 
-  // --- Drive: feed the channels the firmware's driveMixer expects for the active drive mode. ---
+  // --- Drive: feed the channels driveMixer expects for the active machine (tracked vs wheeled). ---
   int steerRaw = GP_STEER_SOURCE ? rx : lx;
 #if GP_STEER_INVERT
   steerRaw = -steerRaw;
@@ -251,35 +251,44 @@ void readGamepadCommands()
 #if GP_THROTTLE_INVERT
   thrRaw = -thrRaw;
 #endif
-#if defined DRIVE_DUAL_STICK
-  // One stick per track: left stick Y = left track, right stick Y = right track.
-  int lTrk = -ly, rTrk = -ry;
-#if GP_THROTTLE_INVERT
-  lTrk = -lTrk; rTrk = -rTrk;
-#endif
-  if (CH_DZ_TRACK_L > 0) pulseWidthRaw[CH_DZ_TRACK_L] = gpAxisToPulse(lTrk, 512, GP_THROTTLE_DEADZONE);
-  if (CH_DZ_TRACK_R > 0) pulseWidthRaw[CH_DZ_TRACK_R] = gpAxisToPulse(rTrk, 512, GP_THROTTLE_DEADZONE);
-#else // DRIVE_SINGLE_STICK_MIX (default): throttle axis + steer axis, firmware mixes into tracks.
+#if MACHINE_TRACKED
+ #if defined DOZER_MODE && defined DRIVE_SINGLE_STICK_MIX
+  // Dozer single-stick mix: throttle axis + steer axis, firmware mixes into both tracks.
   if (CH_DZ_DRIVE > 0) pulseWidthRaw[CH_DZ_DRIVE] = gpAxisToPulse(thrRaw, 512, GP_THROTTLE_DEADZONE);
   if (CH_DZ_STEER > 0) pulseWidthRaw[CH_DZ_STEER] = gpAxisToPulse(steerRaw, 512, GP_STEER_DEADZONE);
+ #else
+  // Tracked dual-stick: left stick Y = left track, right stick Y = right track (tank).
+  int lTrk = -ly, rTrk = -ry;
+  #if GP_THROTTLE_INVERT
+  lTrk = -lTrk; rTrk = -rTrk;
+  #endif
+  if (outDriveL > 0) pulseWidthRaw[outDriveL] = gpAxisToPulse(lTrk, 512, GP_THROTTLE_DEADZONE);
+  if (outDriveR > 0) pulseWidthRaw[outDriveR] = gpAxisToPulse(rTrk, 512, GP_THROTTLE_DEADZONE);
+ #endif
+#else
+  // Wheeled: drive motor from the throttle axis, steer servo from the steer axis.
+  if (outDriveR > 0) pulseWidthRaw[outDriveR] = gpAxisToPulse(thrRaw, 512, GP_THROTTLE_DEADZONE);
+  if (outDriveL > 0) pulseWidthRaw[outDriveL] = gpAxisToPulse(steerRaw, 512, GP_STEER_DEADZONE);
 #endif
 
-  // --- Implements: each assigned output -> its dozer channel (valve model reads pulseWidth[chan]). ---
+  // --- Implements: the 4 assignable gamepad outputs drive the active machine's 4 implement
+  //     channels (outImpl[0..3]). If a slot's channel is 0 (e.g. an unused dozer tilt/angle),
+  //     borrow a free channel index so the valve model still picks it up. ---
 #if GP_BLADE_SRC
-  if (CH_DZ_BLADE > 0)
-    pulseWidthRaw[CH_DZ_BLADE] = gpResolve(c, 0, GP_BLADE_SRC, GP_BLADE_BTN, GP_BLADE_MIN, GP_BLADE_CENTER, GP_BLADE_MAX);
+  if (outImpl[0] == 0) outImpl[0] = 10;
+  pulseWidthRaw[outImpl[0]] = gpResolve(c, 0, GP_BLADE_SRC, GP_BLADE_BTN, GP_BLADE_MIN, GP_BLADE_CENTER, GP_BLADE_MAX);
 #endif
 #if GP_TILT_SRC
-  if (CH_DZ_TILT == 0) CH_DZ_TILT = 10; // enable the tilt channel in gamepad mode (free index, no RX bus)
-  pulseWidthRaw[CH_DZ_TILT] = gpResolve(c, 1, GP_TILT_SRC, GP_TILT_BTN, GP_TILT_MIN, GP_TILT_CENTER, GP_TILT_MAX);
+  if (outImpl[1] == 0) outImpl[1] = 11;
+  pulseWidthRaw[outImpl[1]] = gpResolve(c, 1, GP_TILT_SRC, GP_TILT_BTN, GP_TILT_MIN, GP_TILT_CENTER, GP_TILT_MAX);
 #endif
 #if GP_ANGLE_SRC
-  if (CH_DZ_ANGLE == 0) CH_DZ_ANGLE = 11;
-  pulseWidthRaw[CH_DZ_ANGLE] = gpResolve(c, 2, GP_ANGLE_SRC, GP_ANGLE_BTN, GP_ANGLE_MIN, GP_ANGLE_CENTER, GP_ANGLE_MAX);
+  if (outImpl[2] == 0) outImpl[2] = 12;
+  pulseWidthRaw[outImpl[2]] = gpResolve(c, 2, GP_ANGLE_SRC, GP_ANGLE_BTN, GP_ANGLE_MIN, GP_ANGLE_CENTER, GP_ANGLE_MAX);
 #endif
 #if GP_RIPPER_SRC
-  if (CH_DZ_RIPPER > 0)
-    pulseWidthRaw[CH_DZ_RIPPER] = gpResolve(c, 3, GP_RIPPER_SRC, GP_RIPPER_BTN, GP_RIPPER_MIN, GP_RIPPER_CENTER, GP_RIPPER_MAX);
+  if (outImpl[3] == 0) outImpl[3] = 13;
+  pulseWidthRaw[outImpl[3]] = gpResolve(c, 3, GP_RIPPER_SRC, GP_RIPPER_BTN, GP_RIPPER_MIN, GP_RIPPER_CENTER, GP_RIPPER_MAX);
 #endif
 
   // --- Digital functions -> the toggle/level channels the firmware reads (held = 2000, released = 1000). ---

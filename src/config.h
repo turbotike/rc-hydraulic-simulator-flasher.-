@@ -119,6 +119,47 @@ uint8_t CH_BH_STEER    = 6;   // Steer
 uint8_t CH_LIGHTS      = 6;   // Lights toggle (long press >1700µs cycles states)
 
 // ============================================================================
+// ACTIVE MACHINE OUTPUT MAP — one machine compiled in. Every machine drives the same 6 native
+// outputs: 2 drive (GPIO13/12) + 4 implements (GPIO33/32/14/27). Tracked machines tank-mix into
+// two tracks; wheeled machines use drive-motor + steer-servo. The 4 implements always run through
+// the proportional-valve model. 0 = that implement slot unused. Defined here (not the .ino) so the
+// gamepad code — included right after config.h — can route to the active channels too.
+// ============================================================================
+#if defined DOZER_MODE
+  #define MACHINE_TRACKED 1
+  uint8_t outImpl[4] = {CH_DZ_BLADE, CH_DZ_TILT, CH_DZ_ANGLE, CH_DZ_RIPPER};
+  uint8_t outDriveR = 1, outDriveL = 2; // dozer drive handled by its own mix/dual logic
+#elif defined EXCAVATOR_MODE
+  #define MACHINE_TRACKED 1
+  uint8_t outImpl[4] = {CH_EX_BOOM, CH_EX_STICK, CH_EX_BUCKET, CH_EX_SWING};
+  uint8_t outDriveR = CH_EX_TRACK_R, outDriveL = CH_EX_TRACK_L;
+#elif defined SKIDSTEER_MODE
+  #define MACHINE_TRACKED 1
+  uint8_t outImpl[4] = {CH_SS_BOOM, CH_SS_BUCKET, 0, 0};
+  uint8_t outDriveR = CH_SS_TRACK_R, outDriveL = CH_SS_TRACK_L;
+#elif defined LOADER_MODE
+  #define MACHINE_TRACKED 0
+  uint8_t outImpl[4] = {CH_LD_BOOM, CH_LD_BUCKET, 0, 0};
+  uint8_t outDriveR = CH_LD_DRIVE, outDriveL = CH_LD_STEER;
+#elif defined GRADER_MODE
+  #define MACHINE_TRACKED 0
+  uint8_t outImpl[4] = {CH_GR_BLADE, CH_GR_CIRCLE, CH_GR_TILT, 0};
+  uint8_t outDriveR = CH_GR_DRIVE, outDriveL = CH_GR_ARTICULATION;
+#elif defined CRANE_MODE
+  #define MACHINE_TRACKED 0
+  uint8_t outImpl[4] = {CH_CR_BOOM, CH_CR_EXTEND, CH_CR_SWING, CH_CR_WINCH};
+  uint8_t outDriveR = CH_CR_DRIVE, outDriveL = CH_CR_STEER;
+#elif defined BACKHOE_MODE
+  #define MACHINE_TRACKED 0
+  uint8_t outImpl[4] = {CH_BH_BOOM, CH_BH_DIPPER, CH_BH_BUCKET, CH_BH_SWING};
+  uint8_t outDriveR = CH_BH_DRIVE, outDriveL = CH_BH_STEER;
+#else
+  #define MACHINE_TRACKED 1
+  uint8_t outImpl[4] = {3, 4, 0, 0};
+  uint8_t outDriveR = 1, outDriveL = 2;
+#endif
+
+// ============================================================================
 // CHANNEL REVERSE — per-channel inversion (overridden from NVS if saved)
 // true = reversed (1000↔2000 swapped), false = normal
 // ============================================================================
