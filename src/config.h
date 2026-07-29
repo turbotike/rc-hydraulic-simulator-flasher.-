@@ -65,7 +65,7 @@ int16_t swashAccelRate  = 15;   // swashplate stroke toward command, per 20ms ti
 int16_t swashDecelRate  = 25;   // destroke back toward neutral (faster than accel)
 int16_t trackThrowScale = 100;  // % of servo throw the tracks use
 int16_t counterRotScale = 80;   // % throw allowed while counter-rotating (spin on the spot)
-int16_t driveDroopRefRpm = 350; // engine rpm at/above which full track speed is available
+int16_t driveDroopRefRpm = 450; // engine rpm for full track speed — throttle down = lower rpm = slower
 
 // --- Implement (proportional valve) model: [lift, tilt, angle, ripper] ---
 int16_t cylStroke[4]      = {1000, 800, 800, 900}; // cylinder travel units (for end-stop detection)
@@ -442,7 +442,7 @@ const boolean shiftingAutoThrottle = true;
 // Hi/Lo 2-speed range (rabbit mode) — CH7 toggles, or set hiLoDefaultHigh
 #define HILO_ENABLED                    // Comment out to disable hi/lo
 const uint8_t hiLoRatioPercent = 60;    // Low range = this % of full speed
-const boolean hiLoDefaultHigh = false;  // Start in high range?
+const boolean hiLoDefaultHigh = true;   // Start in HIGH range (fast). Square/CH7 drops to low.
 
 // ============================================================================
 // SERVO ENDPOINTS & RAMP

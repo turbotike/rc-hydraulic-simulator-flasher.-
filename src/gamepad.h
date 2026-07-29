@@ -33,7 +33,7 @@
 #define GP_THROTTLE_DEADZONE 80
 #endif
 #ifndef GP_STEER_SOURCE
-#define GP_STEER_SOURCE 1 // 0 = left stick X, 1 = right stick X
+#define GP_STEER_SOURCE 0 // 0 = left stick X (normal: left stick drives + steers, right stick = blade), 1 = right stick X
 #endif
 #ifndef GP_STEER_INVERT
 #define GP_STEER_INVERT 0
@@ -239,8 +239,18 @@ void readGamepadCommands()
   int ry = c->axisRY();  // right stick Y
   uint16_t btn = c->buttons();
 
-  // --- Engine throttle: dozers run at governed working RPM; the load model bogs it when digging. ---
-  if (CH_THROTTLE > 0) pulseWidthRaw[CH_THROTTLE] = 2000;
+  // --- Engine throttle: a HELD hand-throttle on the D-pad. Up = more rpm, down = less; it stays put
+  //     when you let go. Starts at idle — throttle up to move. Lower rpm = slower tracks (drive droop). ---
+  static int gpThrottle = 1500;      // held between frames; starts at idle (you bring it up)
+  static uint32_t lastThrMs = 0;
+  uint8_t dpadT = c->dpad();          // DS4 bits: up=0x01 down=0x02 right=0x04 left=0x08
+  if (millis() - lastThrMs > 25) {    // ~40 Hz so a hold ramps smoothly
+    lastThrMs = millis();
+    if (dpadT & 0x01) gpThrottle += 15; // D-pad up
+    if (dpadT & 0x02) gpThrottle -= 15; // D-pad down
+    gpThrottle = constrain(gpThrottle, 1500, 2000); // 1500 = idle, 2000 = full working rpm
+  }
+  if (CH_THROTTLE > 0) pulseWidthRaw[CH_THROTTLE] = gpThrottle;
 
   // --- Drive: feed the channels driveMixer expects for the active machine (tracked vs wheeled). ---
   int steerRaw = GP_STEER_SOURCE ? rx : lx;

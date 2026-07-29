@@ -154,7 +154,7 @@ boolean left;
 boolean right;
 
 // Sound state
-volatile boolean engineOn = true;   // Engine ON at power-up (toggle off/on with CH9)
+volatile boolean engineOn = false;  // Engine OFF at power-up — user cranks it (CH9 / Triangle). No auto-start.
 volatile boolean engineStart = false;
 volatile boolean engineRunning = false;
 volatile boolean tracksAreRotating = false;
