@@ -1153,20 +1153,58 @@ void esc() {
   }
 
   escPulseWidth = constrain(escPulseWidth, effectiveMin, effectiveMax);
-#ifndef DOZER_MODE
-  // In DOZER_MODE this pin (GPIO33) is blade lift, driven by mcpwmOutput() — don't let the
-  // ESC state machine (running on Core 0) stomp it.
-  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_A, escPulseWidth);
-#endif
+  // GPIO33 is now a native implement output on EVERY machine, driven by mcpwmOutput(). The ESC
+  // state machine only survives here to feed the engine-sound speed below — it no longer drives a
+  // pin (drive goes out through the generic 6-output path).
 
   // Calculate speed for sound engine
   currentSpeed = abs(escPulseWidth - 1500);
 }
 
 // ════════════════════════════════════════════════════════════════
-// HYDROSTATIC DUAL-PATH DRIVE (dozer) — mixer + swashplate/droop model
+// ACTIVE MACHINE OUTPUT MAP — one machine compiled in; every machine drives the same
+// 6 native outputs: 2 drive (GPIO13/12) + 4 implements (GPIO33/32/14/27). Tracked machines
+// tank-mix into two tracks; wheeled machines use drive-motor + steer-servo. The 4 implements
+// always run through the proportional-valve model (implementControl). 0 = that slot unused.
 // ════════════════════════════════════════════════════════════════
 #if defined DOZER_MODE
+  #define MACHINE_TRACKED 1
+  uint8_t outImpl[4] = {CH_DZ_BLADE, CH_DZ_TILT, CH_DZ_ANGLE, CH_DZ_RIPPER};
+  uint8_t outDriveR = 1, outDriveL = 2; // dozer drive handled by its own mix/dual logic below
+#elif defined EXCAVATOR_MODE
+  #define MACHINE_TRACKED 1
+  uint8_t outImpl[4] = {CH_EX_BOOM, CH_EX_STICK, CH_EX_BUCKET, CH_EX_SWING};
+  uint8_t outDriveR = CH_EX_TRACK_R, outDriveL = CH_EX_TRACK_L;
+#elif defined SKIDSTEER_MODE
+  #define MACHINE_TRACKED 1
+  uint8_t outImpl[4] = {CH_SS_BOOM, CH_SS_BUCKET, 0, 0};
+  uint8_t outDriveR = CH_SS_TRACK_R, outDriveL = CH_SS_TRACK_L;
+#elif defined LOADER_MODE
+  #define MACHINE_TRACKED 0
+  uint8_t outImpl[4] = {CH_LD_BOOM, CH_LD_BUCKET, 0, 0};
+  uint8_t outDriveR = CH_LD_DRIVE, outDriveL = CH_LD_STEER;
+#elif defined GRADER_MODE
+  #define MACHINE_TRACKED 0
+  uint8_t outImpl[4] = {CH_GR_BLADE, CH_GR_CIRCLE, CH_GR_TILT, 0};
+  uint8_t outDriveR = CH_GR_DRIVE, outDriveL = CH_GR_ARTICULATION;
+#elif defined CRANE_MODE
+  #define MACHINE_TRACKED 0
+  uint8_t outImpl[4] = {CH_CR_BOOM, CH_CR_EXTEND, CH_CR_SWING, CH_CR_WINCH};
+  uint8_t outDriveR = CH_CR_DRIVE, outDriveL = CH_CR_STEER;
+#elif defined BACKHOE_MODE
+  #define MACHINE_TRACKED 0
+  uint8_t outImpl[4] = {CH_BH_BOOM, CH_BH_DIPPER, CH_BH_BUCKET, CH_BH_SWING};
+  uint8_t outDriveR = CH_BH_DRIVE, outDriveL = CH_BH_STEER;
+#else
+  #define MACHINE_TRACKED 1
+  uint8_t outImpl[4] = {3, 4, 0, 0};
+  uint8_t outDriveR = 1, outDriveL = 2;
+#endif
+
+// ════════════════════════════════════════════════════════════════
+// DRIVE + IMPLEMENTS — hydrostatic tank drive (tracked) or drive+steer (wheeled),
+// plus the shared proportional-valve implement model. (Originally dozer-only.)
+// ════════════════════════════════════════════════════════════════
 int16_t cmdTrackL = 0, cmdTrackR = 0;       // commanded track effort ±500
 int16_t swashL = 0, swashR = 0;             // ramped swashplate state ±500
 int16_t actualTrackL = 0, actualTrackR = 0; // after droop, ±500 → servo
@@ -1179,9 +1217,11 @@ static int16_t rampToward(int16_t cur, int16_t target, int16_t accel, int16_t de
   return cur;
 }
 
-// Read the sticks → commanded left/right track effort (±500).
+// Read the sticks → commanded drive effort (±500). Tracked = left/right track; wheeled = drive/steer.
 void driveMixer() {
-#if defined DRIVE_SINGLE_STICK_MIX
+#if MACHINE_TRACKED
+  #if defined DOZER_MODE && defined DRIVE_SINGLE_STICK_MIX
+  // Dozer single-stick mix: one stick fwd/back + left/right, blended into both tracks.
   int32_t drive = (int32_t)pulseWidth[CH_DZ_DRIVE] - 1500; // ±500
   int32_t steer = (int32_t)pulseWidth[CH_DZ_STEER] - 1500;
   int32_t l = drive + steer;
@@ -1194,11 +1234,17 @@ void driveMixer() {
   }
   cmdTrackL = l;
   cmdTrackR = r;
-#else // DRIVE_DUAL_STICK — one stick per track
-  cmdTrackL = (int16_t)pulseWidth[CH_DZ_TRACK_L] - 1500;
-  cmdTrackR = (int16_t)pulseWidth[CH_DZ_TRACK_R] - 1500;
-#endif
+  #else // dual-track: one channel per track (excavator, skid steer, dozer dual-stick)
+  cmdTrackL = (int16_t)pulseWidth[outDriveL] - 1500;
+  cmdTrackR = (int16_t)pulseWidth[outDriveR] - 1500;
+  #endif
   if (!engineRunning) { cmdTrackL = 0; cmdTrackR = 0; }
+#else
+  // Wheeled: a drive motor + a steering servo, no tank mix. cmdTrackR = drive, cmdTrackL = steer.
+  cmdTrackR = (int16_t)pulseWidth[outDriveR] - 1500; // drive
+  cmdTrackL = (int16_t)pulseWidth[outDriveL] - 1500; // steer (servo passes through, engine or not)
+  if (!engineRunning) cmdTrackR = 0;
+#endif
 }
 
 // Swashplate ramp + engine-load speed droop → actual track speed. 20ms tick.
@@ -1206,12 +1252,20 @@ void hydrostaticModel() {
   static unsigned long last = 0;
   if (millis() - last < 20) return;
   last = millis();
+#if MACHINE_TRACKED
   swashL = rampToward(swashL, cmdTrackL, swashAccelRate, swashDecelRate);
   swashR = rampToward(swashR, cmdTrackR, swashAccelRate, swashDecelRate);
   int32_t droop = constrain((int32_t)currentRpm * 100 / max((int16_t)1, driveDroopRefRpm), 0, 100);
   actualTrackL = swashL * droop / 100; // tracks slow as the engine bogs, recover as rpm returns
   actualTrackR = swashR * droop / 100;
   driveFlowDemand = (int16_t)(((int32_t)abs(swashL) + abs(swashR)) * driveFlowWeight / 1000);
+#else
+  // Wheeled: drive motor gets an accel/decel ramp; the steer servo passes straight through.
+  swashR = rampToward(swashR, cmdTrackR, swashAccelRate, swashDecelRate);
+  actualTrackR = swashR;      // drive
+  actualTrackL = cmdTrackL;   // steer (direct)
+  driveFlowDemand = (int16_t)((int32_t)abs(swashR) * driveFlowWeight / 1000);
+#endif
 }
 
 // ── Proportional implement valves: lift/tilt/angle/ripper + cylinder position ──
@@ -1227,7 +1281,7 @@ void implementControl() {
   if (millis() - last < 20) return;
   last = millis();
 
-  const uint8_t chans[4] = {CH_DZ_BLADE, CH_DZ_TILT, CH_DZ_ANGLE, CH_DZ_RIPPER};
+  const uint8_t *chans = outImpl; // the active machine's 4 implement channels (0 = unused)
   int16_t rampStep = (int16_t)(500L * 20 / max((uint16_t)20, hydraulicRampTime)); // span per 20ms
   int32_t demand = 0;
   for (int i = 0; i < 4; i++) {
@@ -1279,11 +1333,14 @@ void reliefLogic() {
   uint16_t drivePump = (uint16_t)constrain(driveFlowDemand, (int16_t)0, (int16_t)100);
   if (hydraulicPumpVolume < drivePump) hydraulicPumpVolume = drivePump;
   if (!reliefActive) {
+#if MACHINE_TRACKED
     uint16_t sing = (uint16_t)constrain((abs(actualTrackL) + abs(actualTrackR)) / 8, 0, 90);
+#else
+    uint16_t sing = (uint16_t)constrain(abs(actualTrackR) / 5, 0, 90); // wheeled: drive motion only
+#endif
     if (hydraulicFlowVolume < sing) hydraulicFlowVolume = sing;
   }
 }
-#endif // DOZER_MODE
 
 #if defined GAMEPAD_MODE
 // ── Gamepad engine-feel rumble ────────────────────────────────────────────────────────────────
@@ -1333,47 +1390,33 @@ void mcpwmOutput() {
   if (millis() - lastFrame < 10) return;
   lastFrame = millis();
 
-#if defined DOZER_MODE
-  // ── Dozer: 6 hardware outputs on MCPWM (2 tracks + lift/tilt/angle + ripper) ──
-  // Stage 0 = passthrough plumbing (tracks/blade/ripper keep behaviour; tilt/angle centered
-  // until assigned). Stages 1-2 replace these with the hydrostatic mixer + valve model.
-  uint16_t trackR, trackL, lift, tilt, angle, ripper;
-  // Tracks: hydrostatic model output (already 0 when engine off — cmd forced to 0).
+  // ── Every machine drives 6 MCPWM outputs: 2 drive (GPIO13/12) + 4 implements (GPIO33/32/14/27).
+  //    Tracked: drive A/B = right/left track from the hydrostatic model. Wheeled: A = drive motor,
+  //    B = steering servo. The 4 implements come from the proportional-valve model. ──
+  uint16_t driveA, driveB, im0, im1, im2, im3;
   int16_t aR = actualTrackR, aL = actualTrackL;
+#if MACHINE_TRACKED
   #ifdef HILO_ENABLED
   if (!hiLoIsHigh) { aR = aR * hiLoRatioPercent / 100; aL = aL * hiLoRatioPercent / 100; }
   #endif
-  trackR = constrain(1500 + aR * trackThrowScale / 100, servoMin[0], servoMax[0]);
-  trackL = constrain(1500 + aL * trackThrowScale / 100, servoMin[1], servoMax[1]);
-  // Implements: proportional valve model output (deadzoned + ramped in implementControl()).
-  lift   = constrain(1500 + valveCmd[0], servoMin[2], servoMax[2]);
-  tilt   = constrain(1500 + valveCmd[1], servoMin[2], servoMax[2]);
-  angle  = constrain(1500 + valveCmd[2], servoMin[2], servoMax[2]);
-  ripper = constrain(1500 + valveCmd[3], servoMin[3], servoMax[3]);
-
-  mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, trackR); // GPIO13
-  mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, trackL); // GPIO12
-  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_A, lift);   // GPIO33
-  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_B, tilt);   // GPIO32
-  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_1, MCPWM_OPR_A, angle);  // GPIO14
-  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_1, MCPWM_OPR_B, ripper); // GPIO27
-
+  driveA = constrain(1500 + aR * trackThrowScale / 100, servoMin[0], servoMax[0]); // right track
+  driveB = constrain(1500 + aL * trackThrowScale / 100, servoMin[1], servoMax[1]); // left track
 #else
-  // ── Non-dozer: CH1/CH2 on MCPWM Unit0, CH3/CH4 on LEDC (unchanged) ──
-  uint16_t out1, out2, out3, out4;
-  if (engineRunning) {
-    out1 = constrain(pulseWidth[CH_DZ_TRACK_R], servoMin[0], servoMax[0]);
-    out2 = constrain(pulseWidth[CH_DZ_TRACK_L], servoMin[1], servoMax[1]);
-    out3 = constrain(pulseWidth[CH_DZ_BLADE],   servoMin[2], servoMax[2]);
-    out4 = constrain(pulseWidth[CH_DZ_RIPPER],  servoMin[3], servoMax[3]);
-  } else {
-    out1 = out2 = out3 = out4 = 1500;
-  }
-  mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, out1);
-  mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, out2);
-  ledcWrite(0, out3 * 8192UL / 20000);
-  ledcWrite(1, out4 * 8192UL / 20000);
+  driveA = constrain(1500 + aR * trackThrowScale / 100, servoMin[0], servoMax[0]); // drive motor
+  driveB = constrain(1500 + aL, servoMin[1], servoMax[1]);                          // steer servo (direct)
 #endif
+  // Implements: proportional valve model (deadzoned + ramped in implementControl()); 0-channel = center.
+  im0 = constrain(1500 + valveCmd[0], servoMin[2], servoMax[2]);
+  im1 = constrain(1500 + valveCmd[1], servoMin[2], servoMax[2]);
+  im2 = constrain(1500 + valveCmd[2], servoMin[2], servoMax[2]);
+  im3 = constrain(1500 + valveCmd[3], servoMin[3], servoMax[3]);
+
+  mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, driveA); // GPIO13
+  mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, driveB); // GPIO12
+  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_A, im0);    // GPIO33
+  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_B, im1);    // GPIO32
+  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_1, MCPWM_OPR_A, im2);    // GPIO14
+  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_1, MCPWM_OPR_B, im3);    // GPIO27
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -2080,29 +2123,17 @@ void setup() {
   servo_config.counter_mode = MCPWM_UP_COUNTER;
   servo_config.duty_mode = MCPWM_DUTY_MODE_0;
 
-#if defined DOZER_MODE
-  // Tracks on Unit0 Timer0; 6-way blade + ripper on Unit1 (Timer0 A/B + Timer1 A/B).
-  mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0A, TRACK_R_PIN);     // GPIO13
-  mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0B, TRACK_L_PIN);     // GPIO12
-  mcpwm_gpio_init(MCPWM_UNIT_1, MCPWM0A, BLADE_LIFT_PIN);  // GPIO33 (freed ESC pin)
-  mcpwm_gpio_init(MCPWM_UNIT_1, MCPWM0B, BLADE_TILT_PIN);  // GPIO32
-  mcpwm_gpio_init(MCPWM_UNIT_1, MCPWM1A, BLADE_ANGLE_PIN); // GPIO14
-  mcpwm_gpio_init(MCPWM_UNIT_1, MCPWM1B, RIPPER_PIN);      // GPIO27
-  mcpwm_init(MCPWM_UNIT_0, MCPWM_TIMER_0, &servo_config);  // tracks
-  mcpwm_init(MCPWM_UNIT_1, MCPWM_TIMER_0, &servo_config);  // blade lift + tilt
-  mcpwm_init(MCPWM_UNIT_1, MCPWM_TIMER_1, &servo_config);  // blade angle + ripper
-#else
-  // Non-dozer: CH1/CH2 servos on Unit0, ESC on Unit1, CH3/CH4 servos on LEDC.
-  ledcSetup(0, 50, 13);
-  ledcAttachPin(SERVO_CH3_PIN, 0);
-  ledcSetup(1, 50, 13);
-  ledcAttachPin(SERVO_CH4_PIN, 1);
-  mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0A, SERVO_CH1_PIN);
-  mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0B, SERVO_CH2_PIN);
-  mcpwm_init(MCPWM_UNIT_0, MCPWM_TIMER_0, &servo_config);
-  mcpwm_gpio_init(MCPWM_UNIT_1, MCPWM1A, ESC_OUT_PIN);
-  mcpwm_init(MCPWM_UNIT_1, MCPWM_TIMER_0, &servo_config);
-#endif
+  // Every machine now drives the same 6 native MCPWM outputs: 2 drive on Unit0 Timer0, 4 implements
+  // on Unit1 (Timer0 A/B + Timer1 A/B). GPIO33 is a native output for all machines (no separate ESC).
+  mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0A, TRACK_R_PIN);     // GPIO13  drive A (right track / drive motor)
+  mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0B, TRACK_L_PIN);     // GPIO12  drive B (left track / steer servo)
+  mcpwm_gpio_init(MCPWM_UNIT_1, MCPWM0A, BLADE_LIFT_PIN);  // GPIO33  implement 1
+  mcpwm_gpio_init(MCPWM_UNIT_1, MCPWM0B, BLADE_TILT_PIN);  // GPIO32  implement 2
+  mcpwm_gpio_init(MCPWM_UNIT_1, MCPWM1A, BLADE_ANGLE_PIN); // GPIO14  implement 3
+  mcpwm_gpio_init(MCPWM_UNIT_1, MCPWM1B, RIPPER_PIN);      // GPIO27  implement 4
+  mcpwm_init(MCPWM_UNIT_0, MCPWM_TIMER_0, &servo_config);  // drive
+  mcpwm_init(MCPWM_UNIT_1, MCPWM_TIMER_0, &servo_config);  // implements 1 + 2
+  mcpwm_init(MCPWM_UNIT_1, MCPWM_TIMER_1, &servo_config);  // implements 3 + 4
 
   // RC input setup
 #if defined GAMEPAD_MODE
@@ -2203,7 +2234,12 @@ void loop() {
   // Throttle & sound triggers
   mapThrottle();
 
-  // Hydraulic control (machine-specific)
+  // Drive + implements — shared by every machine (generic 6-output path).
+  driveMixer();        // sticks → commanded drive effort (tank mix or drive/steer)
+  hydrostaticModel();  // swashplate ramp + speed droop (tracked) / drive ramp (wheeled)
+  implementControl();  // proportional implement valves + cylinder position
+
+  // Machine-specific SOUND control (pump/flow/rattle voicing from that machine's channels).
 #if defined EXCAVATOR_MODE
   excavatorControl();
 #elif defined LOADER_MODE
@@ -2211,16 +2247,16 @@ void loop() {
 #elif defined CRANE_MODE
   craneControl();
 #elif defined DOZER_MODE
-  driveMixer();        // sticks → commanded track effort
-  hydrostaticModel();  // swashplate ramp + engine-load speed droop
-  implementControl();  // proportional blade/ripper valves + cylinder position
   dozerControl();
-  reliefLogic();       // relief-valve strain when at end-stop or over pump capacity
 #elif defined SKIDSTEER_MODE
   skidSteerControl();
 #elif defined GRADER_MODE
   graderControl();
+#elif defined BACKHOE_MODE
+  backhoeControl();
 #endif
+
+  reliefLogic();       // relief-valve strain — augments the sound set just above (must run after)
 
   // Servo output
   mcpwmOutput();

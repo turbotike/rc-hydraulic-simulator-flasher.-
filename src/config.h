@@ -12,6 +12,7 @@
 #define DOZER_MODE           // Tracked dozer: blade/tilt/ripper + tracks
 // #define SKIDSTEER_MODE       // Skid steer loader: boom/bucket + dual drive
 // #define GRADER_MODE          // Motor grader: blade/circle/tilt + articulated steering
+// #define BACKHOE_MODE         // Backhoe loader: rear boom/dipper/bucket/swing + drive
 
 // ============================================================================
 // CHANNEL MAPPING — defaults (overridden at runtime from NVS if saved)
@@ -84,15 +85,35 @@ int16_t maxSagRpm       = 220; // max rpm droop at full pump demand
 int16_t lugRpmThreshold = 150; // below this rpm under load → lugging (heavy strain)
 int16_t lugKnockBoost   = 40;  // extra engine strain when lugging
 
-// --- Grader channels ---
+// --- Grader channels (wheeled: drive motor + frame articulation for steering) ---
 uint8_t CH_GR_BLADE    = 1;   // Blade lift (raise/lower moldboard)
 uint8_t CH_GR_CIRCLE   = 2;   // Circle rotation (moldboard angle)
 uint8_t CH_GR_TILT     = 7;   // Blade tilt (left/right lean)
 uint8_t CH_GR_ARTICULATION = 8; // Frame articulation (steering)
+uint8_t CH_GR_DRIVE    = 3;   // Forward / reverse drive
 
-// --- Skid Steer channels ---
+// --- Skid Steer channels (tracked, dual-track drive) ---
 uint8_t CH_SS_BUCKET   = 1;   // Bucket curl/dump
 uint8_t CH_SS_BOOM     = 2;   // Boom up/down
+uint8_t CH_SS_TRACK_R  = 5;   // Right track
+uint8_t CH_SS_TRACK_L  = 6;   // Left track
+
+// --- Loader channels (wheeled: drive motor + steer servo) ---
+uint8_t CH_LD_DRIVE    = 3;   // Forward / reverse drive
+uint8_t CH_LD_STEER    = 4;   // Front-wheel / articulation steer
+
+// --- Crane channels (wheeled: drive + steer, plus a winch/rope function) ---
+uint8_t CH_CR_DRIVE    = 3;   // Forward / reverse drive
+uint8_t CH_CR_STEER    = 4;   // Steer
+uint8_t CH_CR_WINCH    = 5;   // Rope winch up/down
+
+// --- Backhoe loader channels (wheeled: drive + steer; rear boom/dipper/bucket/swing) ---
+uint8_t CH_BH_BOOM     = 1;   // Rear boom up/down
+uint8_t CH_BH_DIPPER   = 2;   // Dipper (stick) in/out
+uint8_t CH_BH_BUCKET   = 3;   // Bucket curl/dump
+uint8_t CH_BH_SWING    = 4;   // Rear boom swing left/right
+uint8_t CH_BH_DRIVE    = 5;   // Forward / reverse drive
+uint8_t CH_BH_STEER    = 6;   // Steer
 
 // --- Lights channel ---
 uint8_t CH_LIGHTS      = 6;   // Lights toggle (long press >1700µs cycles states)
