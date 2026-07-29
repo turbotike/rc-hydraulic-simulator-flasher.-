@@ -170,7 +170,7 @@ def read_config():
     cfg = {}
 
     # Machine type
-    machine_modes = ["EXCAVATOR_MODE", "LOADER_MODE", "CRANE_MODE", "DOZER_MODE", "SKIDSTEER_MODE", "GRADER_MODE"]
+    machine_modes = ["EXCAVATOR_MODE", "LOADER_MODE", "CRANE_MODE", "DOZER_MODE", "SKIDSTEER_MODE", "GRADER_MODE", "BACKHOE_MODE"]
     cfg["machineType"] = "EXCAVATOR_MODE"  # default
     for m in machine_modes:
         # active = line starts with #define (not //)
@@ -365,7 +365,7 @@ def write_config(cfg):
         '', text, flags=re.MULTILINE)
 
     # Machine type
-    machine_modes = ["EXCAVATOR_MODE", "LOADER_MODE", "CRANE_MODE", "DOZER_MODE", "SKIDSTEER_MODE", "GRADER_MODE"]
+    machine_modes = ["EXCAVATOR_MODE", "LOADER_MODE", "CRANE_MODE", "DOZER_MODE", "SKIDSTEER_MODE", "GRADER_MODE", "BACKHOE_MODE"]
     for m in machine_modes:
         if m == cfg.get("machineType"):
             text = re.sub(r'^(//\s*)?#define\s+' + m + r'(.*)', '#define ' + m + r'\2', text, flags=re.MULTILINE)
@@ -1225,7 +1225,8 @@ def spa_schema():
     machine = {"file": "config.h", "label": "Machine", "controls": [
         sel("machineType", "Machine type", cfg.get("machineType"),
             [("EXCAVATOR_MODE", "Excavator"), ("LOADER_MODE", "Loader"), ("CRANE_MODE", "Crane"),
-             ("DOZER_MODE", "Dozer"), ("SKIDSTEER_MODE", "Skid Steer"), ("GRADER_MODE", "Grader")],
+             ("DOZER_MODE", "Dozer"), ("SKIDSTEER_MODE", "Skid Steer"), ("GRADER_MODE", "Grader"),
+                    ("BACKHOE_MODE", "Backhoe Loader")],
             "Which machine this firmware drives."),
         sel("rcProtocol", "Input source", cfg.get("rcProtocol"),
             [("IBUS_COMMUNICATION", "IBUS"), ("SBUS_COMMUNICATION", "SBUS"),

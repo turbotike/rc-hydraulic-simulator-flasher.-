@@ -405,7 +405,7 @@ void IRAM_ATTR variablePlaybackTimer() {
     }
 
     // Hydraulic pump sound
-#if defined EXCAVATOR_MODE || defined CRANE_MODE || defined DOZER_MODE || defined GRADER_MODE
+#if defined EXCAVATOR_MODE || defined CRANE_MODE || defined DOZER_MODE || defined GRADER_MODE || defined BACKHOE_MODE
     if (curHydraulicPumpSample < hydraulicPumpSampleCount - 1) {
       f = (hydraulicPumpSamples[curHydraulicPumpSample] * hydraulicPumpVolumePercentage / 100 * hydraulicPumpVolume / 100);
       curHydraulicPumpSample++;
@@ -895,7 +895,7 @@ void mapThrottle() {
   }
   currentThrottle = constrain(currentThrottle, 0, 500);
 
-#elif defined LOADER_MODE || defined SKIDSTEER_MODE || defined GRADER_MODE
+#elif defined LOADER_MODE || defined SKIDSTEER_MODE || defined GRADER_MODE || defined BACKHOE_MODE
   // Bidirectional throttle (stick controls speed + direction)
   if (pulseWidth[CH_THROTTLE] > pulseMaxNeutral[CH_THROTTLE]) {
     currentThrottle = map(pulseWidth[CH_THROTTLE], pulseMaxNeutral[CH_THROTTLE], pulseMax[CH_THROTTLE], 0, 500);
@@ -1014,8 +1014,8 @@ void engineMassSimulation() {
   targetRpm = constrain((int32_t)currentThrottle - rpmSag, 0, 500);
   engineLugging = (currentRpm < lugRpmThreshold && totalFlowDemand > pumpFlowCapacity / 2);
 
-#elif defined EXCAVATOR_MODE
-  // Excavator: throttle sets target RPM, hydraulic load drops it
+#elif defined EXCAVATOR_MODE || defined BACKHOE_MODE
+  // Excavator / backhoe: throttle sets target RPM, hydraulic load drops it
   targetRpm = currentThrottle - hydraulicLoad;
   targetRpm = constrain(targetRpm, 0, 500);
 
@@ -1764,6 +1764,35 @@ void skidSteerControl() {
     hydraulicFlowVolume = map(pulseWidth[CH_SS_BOOM], pulseMaxNeutral[CH_SS_BOOM], pulseMax[CH_SS_BOOM] - 200, 0, 100);
   else
     hydraulicFlowVolume = 0;
+}
+#endif
+
+#if defined BACKHOE_MODE
+// Backhoe loader: rear boom / dipper / bucket / swing hydraulics + drive. Sound only — the drive
+// and the 4 implements are output through the shared generic path (driveMixer/implementControl).
+void backhoeControl() {
+  const uint8_t fns[4] = {CH_BH_BOOM, CH_BH_DIPPER, CH_BH_BUCKET, CH_BH_SWING};
+  const int     wt[4]  = {35, 30, 25, 25}; // % pump demand each function draws at full stroke
+
+  // Summed proportional pump whine, scaled by rpm; smooth ramp like the other machines.
+  int demand = 0;
+  for (int i = 0; i < 4; i++) {
+    int off = abs((int)pulseWidth[fns[i]] - 1500);
+    if (off > 40) demand += map(constrain(off, 40, 500), 40, 500, 0, wt[i]);
+  }
+  int target = engineRunning ? constrain(demand, 0, 100) * map(currentRpm, 0, 500, 30, 100) / 100 : 0;
+  if (target < hydraulicPumpVolume) hydraulicPumpVolume--;
+  if (target > hydraulicPumpVolume) hydraulicPumpVolume++;
+
+  // Boom lowering → flow hiss.
+  int flow = (engineRunning && pulseWidth[CH_BH_BOOM] > pulseMaxNeutral[CH_BH_BOOM])
+    ? map(pulseWidth[CH_BH_BOOM], pulseMaxNeutral[CH_BH_BOOM], pulseMax[CH_BH_BOOM] - 200, 0, 100) : 0;
+  if (flow < hydraulicFlowVolume) hydraulicFlowVolume--;
+  if (flow > hydraulicFlowVolume) hydraulicFlowVolume++;
+
+  // Load → diesel knock + rpm sag feed (same coupling the excavator uses).
+  hydraulicDependentKnockVolume = map(hydraulicPumpVolume, 0, 100, 50, 100);
+  hydraulicLoad = map(hydraulicPumpVolume, 0, 100, 0, 40);
 }
 #endif
 
