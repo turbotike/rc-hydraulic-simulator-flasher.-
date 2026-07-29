@@ -3710,8 +3710,22 @@ def main():
 
     class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
         daemon_threads = True
-    server = ThreadedHTTPServer(("0.0.0.0", args.port), Handler)
+        # Do NOT reuse the address: on Windows SO_REUSEADDR lets several instances bind the
+        # SAME port at once, so double-clicking the app stacked servers that fought over every
+        # request (page hung on "Loading configuration…"). With this off, a second launch fails
+        # to bind and we just focus the instance that's already running (below).
+        allow_reuse_address = False
+
     url = f"http://localhost:{args.port}"
+    try:
+        server = ThreadedHTTPServer(("0.0.0.0", args.port), Handler)
+    except OSError:
+        # Port busy -> an instance is already up. Open the browser to it and exit (no stacking).
+        print(f"Configurator already running at {url} — opening it.")
+        if not args.no_browser:
+            webbrowser.open(url)
+        return
+
     print(f"HydraulicController Configurator running at {url}")
     print("Press Ctrl+C to stop.")
 

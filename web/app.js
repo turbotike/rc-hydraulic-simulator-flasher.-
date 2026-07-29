@@ -872,7 +872,7 @@ $("quitBtn").onclick = async () => {
   document.body.innerHTML =
     "<div style='min-height:100vh;display:flex;align-items:center;justify-content:center;" +
     "flex-direction:column;gap:14px;text-align:center;font-family:system-ui,sans-serif;" +
-    "background:#000;color:#39ff14'>" +
+    "background:#000;color:#ffcb05'>" +
     "<div style='font-size:42px'>⏻</div>" +
     "<div style='font-size:22px;font-weight:700'>Configurator closed.</div>" +
     "<div style='color:#9aa'>You can close this tab. Re-open the app anytime to start again.</div>" +
