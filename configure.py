@@ -1297,13 +1297,29 @@ GP_FUNCTIONS = [
     ["GP_BTN_LIGHTS", "Lights", "0x0001"],
     ["GP_BTN_HILO", "Hi / Lo range", "0x0004"],
 ]
-# Freely-mappable implement outputs (the dozer's spare servo pins)
+# Freely-mappable implement outputs. The 4 slot KEYS (BLADE/TILT/ANGLE/RIPPER) are fixed — they map
+# to the firmware's outImpl[0..3] / GPIO33/32/14/27 — but the LABELS follow the selected machine.
 GP_OUTPUTS = [
-    ["BLADE", "Blade lift (GPIO33)"],
-    ["TILT", "Blade tilt (GPIO32)"],
-    ["ANGLE", "Blade angle (GPIO14)"],
-    ["RIPPER", "Ripper (GPIO27)"],
+    ["BLADE", "Implement 1 (GPIO33)"],
+    ["TILT", "Implement 2 (GPIO32)"],
+    ["ANGLE", "Implement 3 (GPIO14)"],
+    ["RIPPER", "Implement 4 (GPIO27)"],
 ]
+# Per-machine implement names for the 4 slots (fewer than 4 = the rest are hidden in the UI).
+MACHINE_OUTPUTS = {
+    "DOZER_MODE":     [["BLADE", "Blade lift (GPIO33)"], ["TILT", "Blade tilt (GPIO32)"],
+                       ["ANGLE", "Blade angle (GPIO14)"], ["RIPPER", "Ripper (GPIO27)"]],
+    "EXCAVATOR_MODE": [["BLADE", "Boom (GPIO33)"], ["TILT", "Stick / arm (GPIO32)"],
+                       ["ANGLE", "Bucket (GPIO14)"], ["RIPPER", "Swing (GPIO27)"]],
+    "LOADER_MODE":    [["BLADE", "Boom lift (GPIO33)"], ["TILT", "Bucket (GPIO32)"]],
+    "CRANE_MODE":     [["BLADE", "Boom lift (GPIO33)"], ["TILT", "Extend (GPIO32)"],
+                       ["ANGLE", "Swing (GPIO14)"], ["RIPPER", "Winch (GPIO27)"]],
+    "GRADER_MODE":    [["BLADE", "Blade lift (GPIO33)"], ["TILT", "Circle (GPIO32)"],
+                       ["ANGLE", "Blade tilt (GPIO14)"]],
+    "SKIDSTEER_MODE": [["BLADE", "Boom (GPIO33)"], ["TILT", "Bucket (GPIO32)"]],
+    "BACKHOE_MODE":   [["BLADE", "Boom (GPIO33)"], ["TILT", "Dipper (GPIO32)"],
+                       ["ANGLE", "Bucket (GPIO14)"], ["RIPPER", "Swing (GPIO27)"]],
+}
 GP_SOURCES = [
     [0, "Unassigned"], [1, "Left stick — left/right"], [2, "Left stick — up/down"],
     [3, "Right stick — left/right"], [4, "Right stick — up/down"], [5, "L2 trigger"],
@@ -1371,9 +1387,11 @@ def read_gamepad_config():
     cfg = read_config()
     buttons = {name: _gp_norm_mask(d.get(name, dflt), _gp_norm_mask(dflt))
                for name, _l, dflt in GP_FUNCTIONS}
+    output_list = MACHINE_OUTPUTS.get(cfg.get("machineType"), GP_OUTPUTS)  # labels follow the machine
     return {
         "mode": "gamepad" if cfg.get("rcProtocol") == "GAMEPAD_MODE" else "webui",
         "prevComm": "IBUS_COMMUNICATION",
+        "machineType": cfg.get("machineType"),
         "tankmix": int(d.get("GP_TANKMIX", "1")) != 0,
         "rumble": int(d.get("GP_RUMBLE", "0")) != 0,
         "outputs": {name: {
@@ -1382,8 +1400,8 @@ def read_gamepad_config():
             "min": int(d.get("GP_%s_MIN" % name, "1000")),
             "center": int(d.get("GP_%s_CENTER" % name, "1500")),
             "max": int(d.get("GP_%s_MAX" % name, "2000")),
-        } for name, _l in GP_OUTPUTS},
-        "sourceChoices": GP_SOURCES, "outputList": GP_OUTPUTS,
+        } for name, _l in output_list},
+        "sourceChoices": GP_SOURCES, "outputList": output_list,
         "steerSource": 1 if int(d.get("GP_STEER_SOURCE", "1")) else 0,
         "steerInvert": int(d.get("GP_STEER_INVERT", "0")) != 0,
         "throttleInvert": int(d.get("GP_THROTTLE_INVERT", "0")) != 0,

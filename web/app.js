@@ -589,7 +589,7 @@ function buildGamepadUI(root) {
     // --- Output mapping matrix: CH2 / CH3 / CH4 / AUX -> any control ---
     const omcard = el("div", "card");
     omcard.appendChild(el("div", "sound-cat", "Output mapping"));
-    omcard.appendChild(el("p", "pane-sub", "Assign each spare output to any control — a stick, a trigger, or a button (hold or toggle). Steering (CH1) and throttle (ESC) keep their jobs. Enabling an output takes over that pin from its stock function (e.g. AUX/GPIO32 = 3rd brake light / coupler switch)."));
+    omcard.appendChild(el("p", "pane-sub", "Assign each of this machine's implements to any control — a stick, a trigger, or a button (hold or toggle). Drive and steering are handled automatically. The implement names below follow the machine you picked on the Machine tab (save it first if you just changed it)."));
     omcard.appendChild(el("p", "hint-row", "🎛️ Endpoints shape each output's travel: min / center / max (µs). For a stick or trigger the value tracks the input across that range; for a button, min = released and max = pressed. Blade tilt and angle are unassigned by default — pick a control here to bring GPIO32 / GPIO14 to life."));
     c.outputs = c.outputs || {};
     for (const [key, label] of (c.outputList || [])) {
@@ -637,30 +637,7 @@ function buildGamepadUI(root) {
     root.appendChild(omcard);
   }
 
-  // --- Servo endpoints (always shown — apply in every mode) ---
-  const scard = el("div", "card");
-  scard.appendChild(el("div", "sound-cat", "Servo endpoints" + (c.servoProfile ? " · " + esc(c.servoProfile.replace(/^SERVOS_/, "")) : "")));
-  scard.appendChild(el("p", "pane-sub", "Travel limits for each servo channel, in microseconds (1000–2000, 1500 = center)."));
-  const ch = (label, keys) => {
-    const row = el("div", "ctrl");
-    const meta = el("div", "meta"); meta.appendChild(el("div", "name", esc(label)));
-    row.appendChild(meta);
-    const input = el("div", "input gpends");
-    for (const [k, tag] of keys) {
-      const box = el("div", "gpend");
-      box.appendChild(el("span", "gpend-tag", tag));
-      const inp = el("input"); inp.type = "number"; inp.min = 500; inp.max = 2500; inp.step = 5;
-      inp.value = (c.servos && c.servos[k] != null) ? c.servos[k] : 1500;
-      inp.oninput = () => { (c.servos ||= {})[k] = parseInt(inp.value, 10) || 1500; };
-      box.appendChild(inp); input.appendChild(box);
-    }
-    row.appendChild(input); return row;
-  };
-  scard.appendChild(ch("CH1 · Steering", [["CH1L", "Left"], ["CH1C", "Center"], ["CH1R", "Right"]]));
-  scard.appendChild(ch("CH2 · Gearbox", [["CH2L", "Gear 1"], ["CH2C", "Gear 2"], ["CH2R", "Gear 3"]]));
-  scard.appendChild(ch("CH3 · Aux / Beacon", [["CH3L", "Low"], ["CH3C", "Mid"], ["CH3R", "High"]]));
-  scard.appendChild(ch("CH4 · Coupler", [["CH4L", "Locked"], ["CH4R", "Unlocked"]]));
-  root.appendChild(scard);
+  // (Servo endpoints removed — this rig drives motors + hydraulic actuators, not travel-limited servos.)
 
   // --- Save ---
   const bar = el("div", "toolbar"); bar.style.marginTop = "18px";
