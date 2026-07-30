@@ -532,7 +532,7 @@ function buildGamepadUI(root) {
   if (!gpOnly) {
     const card = el("div", "card");
     card.appendChild(el("div", "sound-cat", "This machine's 6 outputs"));
-    card.appendChild(el("p", "pane-sub", "With an RC transmitter, the ESP32 drives these six outputs for the machine picked on the Machine tab. Wire an ESC/servo to each pin; the drive outputs are handled automatically, the implements follow their sticks."));
+    card.appendChild(el("p", "pane-sub", "With an RC transmitter, the ESP32 drives these six outputs (CH1–CH6) for the machine picked on the Machine tab. Drive is handled automatically; the implements follow their sticks."));
     const outRow = (pin, label) => {
       const row = el("div", "ctrl");
       const meta = el("div", "meta"); meta.appendChild(el("div", "name", esc(label)));
@@ -544,7 +544,7 @@ function buildGamepadUI(root) {
     };
     for (const [pin, label] of (c.driveOutputs || [])) card.appendChild(outRow(pin, label));
     for (const [key, label] of (c.outputList || [])) {
-      const m = String(label).match(/^(.*?)\s*\((GPIO\d+)\)\s*$/);
+      const m = String(label).match(/^(.*?)\s*\(([^)]+)\)\s*$/);
       card.appendChild(outRow(m ? m[2] : "", m ? m[1] : label));
     }
     root.appendChild(card);
@@ -613,7 +613,7 @@ function buildGamepadUI(root) {
     const omcard = el("div", "card");
     omcard.appendChild(el("div", "sound-cat", "Output mapping"));
     omcard.appendChild(el("p", "pane-sub", "Assign each of this machine's implements to any control — a stick, a trigger, the bumpers/D-pad, or a button. Drive and steering are handled automatically. Implement names follow the machine you picked on the Machine tab (save it first if you just changed it)."));
-    omcard.appendChild(el("p", "hint-row", "🔩 These outputs drive 12V linear actuators with built-in limit switches — full extend / stop / retract, no travel calibration needed. Just pick a control. Tilt and angle are unassigned by default; pick a control to bring their pins to life."));
+    omcard.appendChild(el("p", "hint-row", "Pick a control for each implement — a stick, trigger, bumpers, D-pad, or button. Tilt and angle are unassigned by default; assign them to enable CH5 / CH6."));
     c.outputs = c.outputs || {};
     for (const [key, label] of (c.outputList || [])) {
       // Fixed full-range endpoints: center = stop, ends = full drive; the actuator's limit switch stops it.
