@@ -613,7 +613,7 @@ function buildGamepadUI(root) {
     const omcard = el("div", "card");
     omcard.appendChild(el("div", "sound-cat", "Output mapping"));
     omcard.appendChild(el("p", "pane-sub", "Assign each of this machine's implements to any control — a stick, a trigger, the bumpers/D-pad, or a button. Drive and steering are handled automatically. Implement names follow the machine you picked on the Machine tab (save it first if you just changed it)."));
-    omcard.appendChild(el("p", "hint-row", "Pick a control for each implement — a stick, trigger, bumpers, D-pad, or button. Tilt and angle are unassigned by default; assign them to enable CH5 / CH6."));
+    omcard.appendChild(el("p", "hint-row", "Pick a control for each implement — a stick, trigger, bumpers, or D-pad. Header shown in ( ) is the board output to wire it to. Tilt and angle are unassigned by default; assign them to bring their headers to life."));
     c.outputs = c.outputs || {};
     for (const [key, label] of (c.outputList || [])) {
       // Fixed full-range endpoints: center = stop, ends = full drive; the actuator's limit switch stops it.
