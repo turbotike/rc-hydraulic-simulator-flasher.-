@@ -64,9 +64,9 @@ header {
   border-bottom: 2px solid var(--green);
   box-shadow: 0 2px 10px rgba(0,0,0,.5);
 }
-/* logo sits inline in the header bar and fills it vertically */
-.brand { display: flex; align-items: center; }
-.logo { display: block; height: 104px; width: auto; max-width: 56vw;
+/* logo sits inline in the header bar, at its true aspect ratio (never stretched) */
+.brand { display: flex; align-items: center; min-width: 0; }
+.logo { display: block; height: 62px; width: auto; max-width: 100%; object-fit: contain;
         filter: drop-shadow(0 3px 10px rgba(0,0,0,.55)); }
 .veh { display: flex; align-items: center; gap: 8px; }
 .veh label { font-family: var(--display); color: var(--pink); text-shadow: var(--glow-pink); font-size: 18px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; }
