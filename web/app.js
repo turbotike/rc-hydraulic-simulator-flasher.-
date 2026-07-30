@@ -72,7 +72,7 @@ function renderTabBar() {
     b.onclick = () => { state.activeTab = id; render(); };
     nav.appendChild(b);
   };
-  for (const t of allTabs()) add(t.file, esc(t.label));
+  for (const t of allTabs()) add(t.id || t.file, esc(t.label));
   add(FORGE, "🔊 Sound Forge");
   add(GAMEPAD, "🎮 Controls");
   add(FLASH, "⚡ Flash");
@@ -667,14 +667,14 @@ function buildGamepadUI(root) {
 }
 
 function render() {
-  if (!state.activeTab) state.activeTab = (allTabs()[0] || {}).file || FLASH;
+  if (!state.activeTab) { const t0 = allTabs()[0]; state.activeTab = t0 ? (t0.id || t0.file) : FLASH; }
   renderTabBar();
   const content = $("content"); content.innerHTML = "";
   if (state.activeTab === FLASH) { content.appendChild(renderFlashPane()); wireFlashPane(); }
   else if (state.activeTab === GAMEPAD) { content.appendChild(renderGamepadPane()); wireGamepadPane(); }
   else if (state.activeTab === FORGE) { content.appendChild(renderForgePane()); wireForgePane(); }
   else {
-    const tab = allTabs().find((t) => t.file === state.activeTab);
+    const tab = allTabs().find((t) => (t.id || t.file) === state.activeTab);
     content.appendChild(tab ? renderSettingsPane(tab) : el("div", "empty", "Tab not found."));
   }
 }

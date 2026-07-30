@@ -1227,7 +1227,7 @@ def spa_schema():
         s = re.sub(r'([a-z0-9])([A-Z])', r'\1 \2', s).strip()
         return (s[:1].upper() + s[1:]) or k
 
-    machine = {"file": "config.h", "label": "Machine", "controls": [
+    machine = {"file": "config.h", "id": "machine", "label": "Machine", "controls": [
         sel("machineType", "Machine type", cfg.get("machineType"),
             [("EXCAVATOR_MODE", "Excavator"), ("LOADER_MODE", "Loader"), ("CRANE_MODE", "Crane"),
              ("DOZER_MODE", "Dozer"), ("SKIDSTEER_MODE", "Skid Steer"), ("GRADER_MODE", "Grader"),
@@ -1253,7 +1253,7 @@ def spa_schema():
         v = cfg.get(k)
         if isinstance(v, int):
             lvl.append(sld(k, LEVEL_LABELS.get(k, pretty(k)), v, 0, 300, 5, "%"))
-    levels = {"file": "config.h", "label": "Levels", "controls": lvl}
+    levels = {"file": "config.h", "id": "levels", "label": "Levels", "controls": lvl}
 
     # Sound Forge choosers — construction-relevant slots only (no siren/coupler/gearshift/etc.).
     sounds = cfg.get("sounds", {}) or {}
