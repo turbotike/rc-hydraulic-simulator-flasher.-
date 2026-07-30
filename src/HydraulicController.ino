@@ -1382,10 +1382,13 @@ void mcpwmOutput() {
 
   mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, driveA); // GPIO13
   mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, driveB); // GPIO12
-  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_A, im0);    // GPIO33
-  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_B, im1);    // GPIO32
-  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_1, MCPWM_OPR_A, im2);    // GPIO14
-  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_1, MCPWM_OPR_B, im3);    // GPIO27
+  // Implement slots (valveCmd) → board headers: [0]=ESC(33), [1]=CH4(27), [2]=CH3(14), [3]=32.
+  // im1 (slot 2, tilt) and im3 (slot 4, ripper) are swapped onto GPIO27/GPIO32 so the ripper
+  // lands on the GPIO32 header and the three blade functions sit on ESC/CH3/CH4.
+  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_A, im0);    // GPIO33  (ESC hdr)
+  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_B, im3);    // GPIO32  (ripper)
+  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_1, MCPWM_OPR_A, im2);    // GPIO14  (CH3 hdr)
+  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_1, MCPWM_OPR_B, im1);    // GPIO27  (CH4 hdr)
 }
 
 // ════════════════════════════════════════════════════════════════

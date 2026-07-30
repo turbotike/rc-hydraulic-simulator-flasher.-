@@ -1306,24 +1306,24 @@ GP_FUNCTIONS = [
 # to the firmware's outImpl[0..3] / GPIO33/32/14/27 — but the LABELS follow the selected machine.
 GP_OUTPUTS = [
     ["BLADE", "Implement 1 (ESC hdr)"],
-    ["TILT", "Implement 2 (Brake hdr)"],
+    ["TILT", "Implement 2 (CH4)"],
     ["ANGLE", "Implement 3 (CH3)"],
-    ["RIPPER", "Implement 4 (CH4)"],
+    ["RIPPER", "Implement 4 (32)"],
 ]
 # Per-machine implement names for the 4 slots (fewer than 4 = the rest are hidden in the UI).
 MACHINE_OUTPUTS = {
-    "DOZER_MODE":     [["BLADE", "Blade lift (ESC hdr)"], ["TILT", "Blade tilt (Brake hdr)"],
-                       ["ANGLE", "Blade angle (CH3)"], ["RIPPER", "Ripper (CH4)"]],
-    "EXCAVATOR_MODE": [["BLADE", "Boom (ESC hdr)"], ["TILT", "Stick / arm (Brake hdr)"],
-                       ["ANGLE", "Bucket (CH3)"], ["RIPPER", "Swing (CH4)"]],
-    "LOADER_MODE":    [["BLADE", "Boom lift (ESC hdr)"], ["TILT", "Bucket (Brake hdr)"]],
-    "CRANE_MODE":     [["BLADE", "Boom lift (ESC hdr)"], ["TILT", "Extend (Brake hdr)"],
-                       ["ANGLE", "Swing (CH3)"], ["RIPPER", "Winch (CH4)"]],
-    "GRADER_MODE":    [["BLADE", "Blade lift (ESC hdr)"], ["TILT", "Circle (Brake hdr)"],
+    "DOZER_MODE":     [["BLADE", "Blade lift (ESC hdr)"], ["TILT", "Blade tilt (CH4)"],
+                       ["ANGLE", "Blade angle (CH3)"], ["RIPPER", "Ripper (32)"]],
+    "EXCAVATOR_MODE": [["BLADE", "Boom (ESC hdr)"], ["TILT", "Stick / arm (CH4)"],
+                       ["ANGLE", "Bucket (CH3)"], ["RIPPER", "Swing (32)"]],
+    "LOADER_MODE":    [["BLADE", "Boom lift (ESC hdr)"], ["TILT", "Bucket (CH4)"]],
+    "CRANE_MODE":     [["BLADE", "Boom lift (ESC hdr)"], ["TILT", "Extend (CH4)"],
+                       ["ANGLE", "Swing (CH3)"], ["RIPPER", "Winch (32)"]],
+    "GRADER_MODE":    [["BLADE", "Blade lift (ESC hdr)"], ["TILT", "Circle (CH4)"],
                        ["ANGLE", "Blade tilt (CH3)"]],
-    "SKIDSTEER_MODE": [["BLADE", "Boom (ESC hdr)"], ["TILT", "Bucket (Brake hdr)"]],
-    "BACKHOE_MODE":   [["BLADE", "Boom (ESC hdr)"], ["TILT", "Dipper (Brake hdr)"],
-                       ["ANGLE", "Bucket (CH3)"], ["RIPPER", "Swing (CH4)"]],
+    "SKIDSTEER_MODE": [["BLADE", "Boom (ESC hdr)"], ["TILT", "Bucket (CH4)"]],
+    "BACKHOE_MODE":   [["BLADE", "Boom (ESC hdr)"], ["TILT", "Dipper (CH4)"],
+                       ["ANGLE", "Bucket (CH3)"], ["RIPPER", "Swing (32)"]],
 }
 # The two drive outputs (GPIO13/12) per machine: tracked = two tracks, wheeled = drive + steer.
 MACHINE_DRIVE = {
