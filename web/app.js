@@ -630,14 +630,6 @@ function buildGamepadUI(root) {
       }
       ssel.onchange = () => { o.src = parseInt(ssel.value, 10); buildGamepadUI(root); };
       sin.appendChild(ssel);
-      if (o.src === 8 || o.src === 9) {
-        const bsel = el("select"); bsel.style.marginLeft = "8px";
-        for (const [mask, blabel] of (c.buttonChoices || [])) {
-          const op = el("option"); op.value = mask; op.textContent = blabel; if (parseInt(mask, 16) === parseInt(o.btn, 16)) op.selected = true; bsel.appendChild(op);
-        }
-        bsel.onchange = () => { o.btn = bsel.value; };
-        sin.appendChild(bsel);
-      }
       srow.appendChild(sin); block.appendChild(srow);
       omcard.appendChild(block);
     }
