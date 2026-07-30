@@ -971,7 +971,7 @@ void mapThrottle() {
     if (pulseWidth[CH_LIGHTS] > 1700 && !lightsToggleLock) {
       lightsToggleLock = true;
 
-      // Cycle: off → front → rear → side → off (one set at a time)
+      // Cycle (additive): off → front → +rear → +side (all on) → off
       lightsMode++;
       if (lightsMode > 3) lightsMode = 0;
       lightsOn = (lightsMode > 0);
@@ -980,11 +980,11 @@ void mapThrottle() {
     if (pulseWidth[CH_LIGHTS] < 1600) lightsToggleLock = false;
   }
 
-  // ── Work-light GPIO output ──
-  // lightsMode: 0=off, 1=front, 2=rear, 3=side (exclusive)
-  digitalWrite(FRONT_WORKLIGHT_PIN, (lightsMode == 1) ? HIGH : LOW);
-  digitalWrite(REAR_WORKLIGHT_PIN,  (lightsMode == 2) ? HIGH : LOW);
-  digitalWrite(SIDE_LIGHT_PIN,      (lightsMode == 3) ? HIGH : LOW);
+  // ── Work-light GPIO output ── each press adds the next set; they all stay on until "off".
+  // lightsMode: 0=off, 1=front, 2=front+rear, 3=front+rear+side
+  digitalWrite(FRONT_WORKLIGHT_PIN, (lightsMode >= 1) ? HIGH : LOW);
+  digitalWrite(REAR_WORKLIGHT_PIN,  (lightsMode >= 2) ? HIGH : LOW);
+  digitalWrite(SIDE_LIGHT_PIN,      (lightsMode >= 3) ? HIGH : LOW);
 }
 
 // ════════════════════════════════════════════════════════════════
