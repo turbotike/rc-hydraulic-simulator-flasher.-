@@ -963,16 +963,15 @@ void mapThrottle() {
   hornTrigger = (pulseWidth[CH_HORN] > 1800);
   if (!hornTrigger) hornLatch = false;
 
-  // Lights: simple on/off toggle, 2 fast flicks = cycle mode
-  // Single flick: toggle on/off (using current mode, default front lights)
-  // Double flick (2 toggles within 500ms): cycle mode: front → work → all → front
+  // Work lights: each press of the lights button steps the cycle
+  //   off → FRONT → REAR → ALL (front + rear) → off
   {
     static boolean lightsToggleLock = false;
 
     if (pulseWidth[CH_LIGHTS] > 1700 && !lightsToggleLock) {
       lightsToggleLock = true;
 
-      // Cycle: off → headlights → work lights → both → off
+      // Cycle: off → front work lights → rear work lights → both → off
       lightsMode++;
       if (lightsMode > 3) lightsMode = 0;
       lightsOn = (lightsMode > 0);
@@ -981,14 +980,14 @@ void mapThrottle() {
     if (pulseWidth[CH_LIGHTS] < 1600) lightsToggleLock = false;
   }
 
-  // ── Light GPIO output ──
-  // lightsMode: 0=off, 1=front only, 2=work only, 3=all
+  // ── Work-light GPIO output ──
+  // lightsMode: 0=off, 1=front only, 2=rear only, 3=all
   if (lightsOn && lightsState) {
-    digitalWrite(HEADLIGHT_PIN, (lightsMode == 1 || lightsMode == 3) ? HIGH : LOW);
-    digitalWrite(WORKLIGHT_PIN, (lightsMode == 2 || lightsMode == 3) ? HIGH : LOW);
+    digitalWrite(FRONT_WORKLIGHT_PIN, (lightsMode == 1 || lightsMode == 3) ? HIGH : LOW);
+    digitalWrite(REAR_WORKLIGHT_PIN, (lightsMode == 2 || lightsMode == 3) ? HIGH : LOW);
   } else {
-    digitalWrite(HEADLIGHT_PIN, LOW);
-    digitalWrite(WORKLIGHT_PIN, LOW);
+    digitalWrite(FRONT_WORKLIGHT_PIN, LOW);
+    digitalWrite(REAR_WORKLIGHT_PIN, LOW);
   }
 }
 
@@ -2111,10 +2110,10 @@ void setup() {
   dacWrite(DAC2_PIN, 0); // GPIO 26
 
   // Lights GPIO
-  pinMode(HEADLIGHT_PIN, OUTPUT);
-  pinMode(WORKLIGHT_PIN, OUTPUT);
-  digitalWrite(HEADLIGHT_PIN, LOW);
-  digitalWrite(WORKLIGHT_PIN, LOW);
+  pinMode(FRONT_WORKLIGHT_PIN, OUTPUT);
+  pinMode(REAR_WORKLIGHT_PIN, OUTPUT);
+  digitalWrite(FRONT_WORKLIGHT_PIN, LOW);
+  digitalWrite(REAR_WORKLIGHT_PIN, LOW);
 
   // Servo outputs — all six on MCPWM (hardware PWM, zero ISR load, can't starve the DAC ISRs).
   mcpwm_config_t servo_config;

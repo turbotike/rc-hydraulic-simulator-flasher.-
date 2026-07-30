@@ -263,8 +263,8 @@ uint32_t sbusBaud = 100000;     // Standard 100000. Some receivers need 163863
 #define BATTERY_DETECT_PIN  39  // Voltage divider on VN
 
 // Lights output
-#define HEADLIGHT_PIN        3  // Front headlights (GPIO 3)
-#define WORKLIGHT_PIN       22  // Work lights / cab lights (GPIO 22, free when not using PWM RC)
+#define FRONT_WORKLIGHT_PIN      3   // Front work lights (GPIO 3 — board HEADL header)
+#define REAR_WORKLIGHT_PIN       22  // Rear work lights (GPIO 22 — free when not using PWM RC input)
 
 // Status LED (active low on some boards)
 #define STATUS_LED_PIN       0
