@@ -971,7 +971,7 @@ void mapThrottle() {
     if (pulseWidth[CH_LIGHTS] > 1700 && !lightsToggleLock) {
       lightsToggleLock = true;
 
-      // Cycle: off → front work lights → rear work lights → both → off
+      // Cycle: off → front → rear → side → off (one set at a time)
       lightsMode++;
       if (lightsMode > 3) lightsMode = 0;
       lightsOn = (lightsMode > 0);
@@ -981,14 +981,10 @@ void mapThrottle() {
   }
 
   // ── Work-light GPIO output ──
-  // lightsMode: 0=off, 1=front only, 2=rear only, 3=all
-  if (lightsOn && lightsState) {
-    digitalWrite(FRONT_WORKLIGHT_PIN, (lightsMode == 1 || lightsMode == 3) ? HIGH : LOW);
-    digitalWrite(REAR_WORKLIGHT_PIN, (lightsMode == 2 || lightsMode == 3) ? HIGH : LOW);
-  } else {
-    digitalWrite(FRONT_WORKLIGHT_PIN, LOW);
-    digitalWrite(REAR_WORKLIGHT_PIN, LOW);
-  }
+  // lightsMode: 0=off, 1=front, 2=rear, 3=side (exclusive)
+  digitalWrite(FRONT_WORKLIGHT_PIN, (lightsMode == 1) ? HIGH : LOW);
+  digitalWrite(REAR_WORKLIGHT_PIN,  (lightsMode == 2) ? HIGH : LOW);
+  digitalWrite(SIDE_LIGHT_PIN,      (lightsMode == 3) ? HIGH : LOW);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -2109,11 +2105,13 @@ void setup() {
   dacWrite(DAC1_PIN, 0); // GPIO 25
   dacWrite(DAC2_PIN, 0); // GPIO 26
 
-  // Lights GPIO
+  // Work-light GPIO (front / rear / side)
   pinMode(FRONT_WORKLIGHT_PIN, OUTPUT);
   pinMode(REAR_WORKLIGHT_PIN, OUTPUT);
+  pinMode(SIDE_LIGHT_PIN, OUTPUT);
   digitalWrite(FRONT_WORKLIGHT_PIN, LOW);
   digitalWrite(REAR_WORKLIGHT_PIN, LOW);
+  digitalWrite(SIDE_LIGHT_PIN, LOW);
 
   // Servo outputs — all six on MCPWM (hardware PWM, zero ISR load, can't starve the DAC ISRs).
   mcpwm_config_t servo_config;
