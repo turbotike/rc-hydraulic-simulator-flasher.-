@@ -345,7 +345,7 @@ volatile int sirenVolumePercentage = 100;
 #include "sounds/sirenDummy.h"
 
 // --- Air brake ---
-volatile int brakeVolumePercentage = 150;
+volatile int brakeVolumePercentage = 0;   // Brake sound disabled (not wanted on this build)
 #include "sounds/AirBrakeDummy.h"
 
 

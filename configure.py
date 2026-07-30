@@ -1200,7 +1200,7 @@ CONSTRUCTION_LEVELS = [
     "fullThrottleVolumePercentage", "turboVolumePercentage",
     "hydraulicPumpVolumePercentage", "hydraulicFlowVolumePercentage",
     "trackRattleVolumePercentage", "bucketRattleVolumePercentage",
-    "hornVolumePercentage", "reversingVolumePercentage", "brakeVolumePercentage",
+    "hornVolumePercentage", "reversingVolumePercentage",
 ]
 # A few Levels sliders get a clearer label than the auto-prettified variable name.
 LEVEL_LABELS = {
@@ -1263,8 +1263,7 @@ def spa_schema():
     slot_titles = [("startSound", "Engine start"), ("idleSound", "Engine idle"),
                    ("revSound", "Engine rev"), ("turboSound", "Turbo"),
                    ("trackRattleSound", "Track rattle"), ("bucketRattleSound", "Bucket rattle"),
-                   ("hornSound", "Horn"), ("reversingSound", "Reversing beep"),
-                   ("brakeSound", "Brake")]
+                   ("hornSound", "Horn"), ("reversingSound", "Reversing beep")]
     sound_choices = [{"key": slot, "title": title, "options": sopts,
                       "selected": sounds.get(slot), "category": "", "varPrefix": ""}
                      for slot, title in slot_titles if sounds.get(slot)]
@@ -1340,6 +1339,7 @@ GP_SOURCES = [
     [0, "Unassigned"], [1, "Left stick — left/right"], [2, "Left stick — up/down"],
     [3, "Right stick — left/right"], [4, "Right stick — up/down"], [5, "L2 trigger"],
     [6, "R2 trigger"], [7, "Triggers (R2 − L2)"], [8, "Button (hold)"], [9, "Button (toggle)"],
+    [10, "Bumpers (R1 − L1)"], [11, "D-pad ◂ ▸"],
 ]
 GP_SERVO_N = 4  # CH1..CH4 endpoints shown in the Controls tab (map to servoMin/Center/Max[0..3])
 

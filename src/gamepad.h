@@ -58,6 +58,8 @@
 #define GP_SRC_TRIG 7    // R2 - L2, centered
 #define GP_SRC_BTN_MOM 8 // button: on while held
 #define GP_SRC_BTN_TOG 9 // button: press to toggle
+#define GP_SRC_BUMP 10   // bumpers R1 − L1, centered (bidirectional — great for tilt/angle)
+#define GP_SRC_DPAD_X 11 // D-pad ◂ ▸, centered (bidirectional)
 
 // ── Implement output defaults: BLADE(lift) / TILT / ANGLE / RIPPER (flasher overrides) ────────────────
 // SRC 0 = unassigned -> that implement stays centered.
@@ -213,6 +215,17 @@ static uint16_t gpResolve(ControllerPtr c, uint8_t idx, uint8_t src, uint16_t bt
     if (pressed && !prev[idx]) tog[idx] = !tog[idx];
     prev[idx] = pressed;
     return tog[idx] ? mx : mn;
+  }
+  case GP_SRC_BUMP: // R1 = one way, L1 = the other (bidirectional off the bumpers)
+  {
+    int v = ((btn & 0x0020) ? 512 : 0) - ((btn & 0x0010) ? 512 : 0);
+    return gpMapCentered(v, mn, ct, mx, 0);
+  }
+  case GP_SRC_DPAD_X: // D-pad right/left (bidirectional)
+  {
+    uint8_t dp = c->dpad();
+    int v = ((dp & 0x04) ? 512 : 0) - ((dp & 0x08) ? 512 : 0);
+    return gpMapCentered(v, mn, ct, mx, 0);
   }
   default: return ct;
   }
