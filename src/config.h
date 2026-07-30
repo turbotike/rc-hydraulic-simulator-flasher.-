@@ -276,11 +276,7 @@ uint32_t sbusBaud = 100000;     // Standard 100000. Some receivers need 163863
 
 // --- Start sound ---
 volatile int startVolumePercentage = 140;
-#include "sounds/D6TrackRattle.h"
-// Alias: auto-generated variable mapping
-const signed char* startSamples = trackRattle2Samples;
-const unsigned int startSampleCount = trackRattle2SampleCount;
-const unsigned int startSampleRate = trackRattle2SampleRate;
+#include "sounds/CaterpillarD6DozerStart.h"
 
 // --- Idle sound ---
 volatile int idleVolumePercentage = 80;
@@ -414,6 +410,11 @@ volatile int bucketRattleVolumePercentage = 160;
 const signed char* parkingBrakeSamples = samples;
 const unsigned int parkingBrakeSampleCount = sampleCount;
 const unsigned int parkingBrakeSampleRate = sampleRate;
+
+// Auto-injected for trackRattle2Sound (was missing) — using idle sound
+const signed char* trackRattle2Samples = samples;
+const unsigned int trackRattle2SampleCount = sampleCount;
+const unsigned int trackRattle2SampleRate = sampleRate;
 
 // ============================================================================
 // RC SIGNAL TUNING

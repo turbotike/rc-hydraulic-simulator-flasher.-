@@ -73,7 +73,7 @@ function renderTabBar() {
     nav.appendChild(b);
   };
   for (const t of allTabs()) add(t.id || t.file, esc(t.label));
-  add(FORGE, "🔊 Sound Forge");
+  add(FORGE, "🔊 Sound Technician");
   add(GAMEPAD, "🎮 Controls");
   add(FLASH, "⚡ Flash");
 }
@@ -255,7 +255,7 @@ async function previewSound(file) {
 
 function renderForgePane() {
   const pane = el("div", "tabpane");
-  pane.appendChild(el("h2", "pane-title", "🔊 Sound Forge"));
+  pane.appendChild(el("h2", "pane-title", "🔊 Sound Technician"));
   pane.appendChild(el("p", "pane-sub", "Master volume and engine sound selection for " + esc(state.schema.currentVehicle || "—")));
 
   // Master volume + pot override
