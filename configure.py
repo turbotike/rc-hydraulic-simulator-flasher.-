@@ -1197,11 +1197,16 @@ WEB_DIR = os.path.join(PROJECT_DIR, "web")
 # is hidden from the UI; its config.h value is left untouched.
 CONSTRUCTION_LEVELS = [
     "startVolumePercentage", "idleVolumePercentage", "revVolumePercentage",
-    "fullThrottleVolumePercentage", "dieselKnockVolumePercentage", "turboVolumePercentage",
+    "fullThrottleVolumePercentage", "turboVolumePercentage",
     "hydraulicPumpVolumePercentage", "hydraulicFlowVolumePercentage",
     "trackRattleVolumePercentage", "bucketRattleVolumePercentage",
     "hornVolumePercentage", "reversingVolumePercentage", "brakeVolumePercentage",
 ]
+# A few Levels sliders get a clearer label than the auto-prettified variable name.
+LEVEL_LABELS = {
+    "hydraulicFlowVolumePercentage": "Relief squeal",   # flow voice is the relief cue now
+    "hydraulicPumpVolumePercentage": "Hydraulic pump",
+}
 
 def spa_schema():
     """Build the app.js /api/schema from config.h (via read_config)."""
@@ -1247,18 +1252,19 @@ def spa_schema():
     for k in CONSTRUCTION_LEVELS:
         v = cfg.get(k)
         if isinstance(v, int):
-            lvl.append(sld(k, pretty(k), v, 0, 300, 5, "%"))
+            lvl.append(sld(k, LEVEL_LABELS.get(k, pretty(k)), v, 0, 300, 5, "%"))
     levels = {"file": "config.h", "label": "Levels", "controls": lvl}
 
     # Sound Forge choosers — construction-relevant slots only (no siren/coupler/gearshift/etc.).
     sounds = cfg.get("sounds", {}) or {}
     sopts = [{"file": s["file"], "label": s["label"]} for s in scan_all_sounds()]
+    # Swappable engine/effect sounds. Diesel knock is disabled; the hydraulic pump + flow(relief)
+    # sounds are LOCKED (fixed in config.h) so they're intentionally not listed here.
     slot_titles = [("startSound", "Engine start"), ("idleSound", "Engine idle"),
-                   ("revSound", "Engine rev"), ("knockSound", "Diesel knock"),
-                   ("turboSound", "Turbo"), ("hydraulicPumpSound", "Hydraulic pump"),
-                   ("hydraulicFlowSound", "Hydraulic flow"), ("trackRattleSound", "Track rattle"),
-                   ("bucketRattleSound", "Bucket rattle"), ("hornSound", "Horn"),
-                   ("reversingSound", "Reversing beep"), ("brakeSound", "Brake")]
+                   ("revSound", "Engine rev"), ("turboSound", "Turbo"),
+                   ("trackRattleSound", "Track rattle"), ("bucketRattleSound", "Bucket rattle"),
+                   ("hornSound", "Horn"), ("reversingSound", "Reversing beep"),
+                   ("brakeSound", "Brake")]
     sound_choices = [{"key": slot, "title": title, "options": sopts,
                       "selected": sounds.get(slot), "category": "", "varPrefix": ""}
                      for slot, title in slot_titles if sounds.get(slot)]

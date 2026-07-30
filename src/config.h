@@ -307,7 +307,7 @@ const unsigned int revSampleRate = idle_sampleRate;
 #endif
 
 // --- Diesel knock ---
-volatile int dieselKnockVolumePercentage = 600;
+volatile int dieselKnockVolumePercentage = 0;   // Diesel knock disabled (not wanted on this build)
 volatile int dieselKnockIdleVolumePercentage = 10;
 volatile int dieselKnockInterval = 6;
 volatile int dieselKnockStartPoint = 110;

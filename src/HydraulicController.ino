@@ -1299,27 +1299,16 @@ void reliefLogic() {
   reliefActive = (millis() - reliefLastMs < reliefHoldMs);
 
   if (reliefActive) {
-    // Engine strains + audible relief cue (dedicated squeal sample lands in Stage 5).
-    if (hydraulicLoad < 80) hydraulicLoad = 80;
-    hydraulicFlowVolume = 100;
-  }
-  if (engineLugging) {
-    // Bogged under load: heavier knock (the diesel "digging in" hammer).
-    hydraulicDependentKnockVolume = constrain(hydraulicDependentKnockVolume + lugKnockBoost, 0, 200);
+    if (hydraulicLoad < 80) hydraulicLoad = 80; // engine strains when the relief is open
   }
 
-  // Sound coupling: drive load lifts the pump whine; track motion adds the hydrostatic "sing".
-  // Take max() so this augments (never silences) the implement-driven pump from dozerControl().
+  // The hydraulic-FLOW voice is the RELIEF sound now — it plays only when the relief cracks over
+  // pressure, nothing else (no flow hiss on normal implement/track movement).
+  hydraulicFlowVolume = reliefActive ? 100 : 0;
+
+  // Pump whine still follows drive load (augments the implement-driven pump from the control fn).
   uint16_t drivePump = (uint16_t)constrain(driveFlowDemand, (int16_t)0, (int16_t)100);
   if (hydraulicPumpVolume < drivePump) hydraulicPumpVolume = drivePump;
-  if (!reliefActive) {
-#if MACHINE_TRACKED
-    uint16_t sing = (uint16_t)constrain((abs(actualTrackL) + abs(actualTrackR)) / 8, 0, 90);
-#else
-    uint16_t sing = (uint16_t)constrain(abs(actualTrackR) / 5, 0, 90); // wheeled: drive motion only
-#endif
-    if (hydraulicFlowVolume < sing) hydraulicFlowVolume = sing;
-  }
 }
 
 #if defined GAMEPAD_MODE
