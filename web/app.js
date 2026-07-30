@@ -612,10 +612,11 @@ function buildGamepadUI(root) {
     // --- Output mapping matrix: CH2 / CH3 / CH4 / AUX -> any control ---
     const omcard = el("div", "card");
     omcard.appendChild(el("div", "sound-cat", "Output mapping"));
-    omcard.appendChild(el("p", "pane-sub", "Assign each of this machine's implements to any control — a stick, a trigger, or a button (hold or toggle). Drive and steering are handled automatically. The implement names below follow the machine you picked on the Machine tab (save it first if you just changed it)."));
-    omcard.appendChild(el("p", "hint-row", "🎛️ Endpoints shape each output's travel: min / center / max (µs). For a stick or trigger the value tracks the input across that range; for a button, min = released and max = pressed. Blade tilt and angle are unassigned by default — pick a control here to bring GPIO32 / GPIO14 to life."));
+    omcard.appendChild(el("p", "pane-sub", "Assign each of this machine's implements to any control — a stick, a trigger, the bumpers/D-pad, or a button. Drive and steering are handled automatically. Implement names follow the machine you picked on the Machine tab (save it first if you just changed it)."));
+    omcard.appendChild(el("p", "hint-row", "🔩 These outputs drive 12V linear actuators with built-in limit switches — full extend / stop / retract, no travel calibration needed. Just pick a control. Tilt and angle are unassigned by default; pick a control to bring their pins to life."));
     c.outputs = c.outputs || {};
     for (const [key, label] of (c.outputList || [])) {
+      // Fixed full-range endpoints: center = stop, ends = full drive; the actuator's limit switch stops it.
       const o = c.outputs[key] || (c.outputs[key] = { src: 0, btn: "0x0000", min: 1000, center: 1500, max: 2000 });
       const block = el("div", "gpmap");
       block.appendChild(el("div", "gpmap-h", esc(label)));
@@ -638,23 +639,6 @@ function buildGamepadUI(root) {
         sin.appendChild(bsel);
       }
       srow.appendChild(sin); block.appendChild(srow);
-
-      // endpoints (only once assigned)
-      if (o.src !== 0) {
-        const isBtn = (o.src === 8 || o.src === 9);
-        const erow = el("div", "ctrl");
-        erow.appendChild((() => { const m = el("div", "meta"); m.appendChild(el("div", "name", "Endpoints (µs)")); m.appendChild(el("div", "desc", isBtn ? "Min = released, Max = pressed." : "Min / center / max travel.")); return m; })());
-        const ein = el("div", "input gpends");
-        for (const [k, tag] of [["min", "Min"], ["center", "Center"], ["max", "Max"]]) {
-          if (isBtn && k === "center") continue; // a button only uses min/max
-          const box = el("div", "gpend"); box.appendChild(el("span", "gpend-tag", tag));
-          const inp = el("input"); inp.type = "number"; inp.min = 500; inp.max = 2500; inp.step = 5;
-          inp.value = o[k] != null ? o[k] : (k === "center" ? 1500 : k === "min" ? 1000 : 2000);
-          inp.oninput = () => { o[k] = parseInt(inp.value, 10) || 1500; };
-          box.appendChild(inp); ein.appendChild(box);
-        }
-        erow.appendChild(ein); block.appendChild(erow);
-      }
       omcard.appendChild(block);
     }
     root.appendChild(omcard);
