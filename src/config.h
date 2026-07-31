@@ -459,6 +459,12 @@ const uint16_t servoMin[5] = {1000, 1000, 1000, 1000, 1000};
 const uint16_t servoMax[5] = {2000, 2000, 2000, 2000, 2000};
 const uint16_t servoCenter[5] = {1500, 1500, 1500, 1500, 1500};
 
+// Per-OUTPUT direction flip (mirrored around 1500 at the pin). Motors/actuators get wired
+// whichever way they land, so flip any output that runs backwards. Index:
+//   0 = CH1 (drive/track R)   1 = CH2 (drive/track L)   2 = ESC (implement 1)
+//   3 = CH4 (implement 2)     4 = CH3 (implement 3)     5 = "32" (implement 4)
+bool outputReversed[6] = {false, false, false, false, false, false};
+
 // Excavator-specific: hydraulic valve dead zone & ramp time (ms to reach full throw)
 const uint16_t hydraulicRampTime = 200;  // Smooth valve response
 const uint16_t hydraulicDeadZone = 50;   // µs dead zone around center

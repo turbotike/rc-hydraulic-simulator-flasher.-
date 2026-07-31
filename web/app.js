@@ -540,6 +540,30 @@ function buildGamepadUI(root) {
     root.appendChild(el("div", "gpbadge", "⚠️ Experimental — controller support needs testing on real hardware."));
   }
 
+  // --- Reverse output direction (both modes) — for motors/actuators wired backwards ---
+  {
+    const rc = el("div", "card");
+    rc.appendChild(el("div", "sound-cat", "Reverse output direction"));
+    rc.appendChild(el("p", "pane-sub", "Motors and actuators get wired whichever way they land. If an output runs the wrong way on the bench, flip it here — it mirrors that channel around center."));
+    c.outputReversed = c.outputReversed || [false, false, false, false, false, false];
+    const revRow = (idx, label) => {
+      const row = el("div", "ctrl");
+      const meta = el("div", "meta"); meta.appendChild(el("div", "name", esc(label)));
+      row.appendChild(meta);
+      const input = el("div", "input");
+      const sw = el("label", "switch"); const inp = el("input"); inp.type = "checkbox";
+      inp.checked = !!c.outputReversed[idx];
+      inp.onchange = () => { c.outputReversed[idx] = inp.checked; };
+      sw.appendChild(inp); sw.appendChild(el("span", "slider-ui")); input.appendChild(sw);
+      row.appendChild(input); return row;
+    };
+    const drv = c.driveOutputs || [];
+    if (drv[0]) rc.appendChild(revRow(0, drv[0][1] + " (" + drv[0][0] + ")"));
+    if (drv[1]) rc.appendChild(revRow(1, drv[1][1] + " (" + drv[1][0] + ")"));
+    (c.outputList || []).forEach(([_k, label], i) => rc.appendChild(revRow(2 + i, label)));
+    root.appendChild(rc);
+  }
+
   // --- RC mode: read-only reference of what this machine's 6 outputs do ---
   if (!gpOnly) {
     const card = el("div", "card");

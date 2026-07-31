@@ -1424,6 +1424,26 @@ def write_servo_endpoints(vals):
         f.write(text)
 
 
+def read_output_reversed():
+    with open(CONFIG_PATH, encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    m = re.search(r"bool\s+outputReversed\s*\[\s*\d*\s*\]\s*=\s*\{([^}]+)\}", text)
+    if not m:
+        return [False] * 6
+    vals = [v.split("//")[0].strip() == "true" for v in m.group(1).split(",")]
+    return (vals + [False] * 6)[:6]
+
+
+def write_output_reversed(lst):
+    with open(CONFIG_PATH, encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    arr = ["true" if (i < len(lst) and lst[i]) else "false" for i in range(6)]
+    text = re.sub(r"(bool\s+outputReversed\s*\[\s*\d*\s*\]\s*=\s*\{)[^}]+(\})",
+                  lambda m: m.group(1) + ", ".join(arr) + m.group(2), text)
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
 def read_gamepad_config():
     d = _read_gp_defines()
     cfg = read_config()
@@ -1450,6 +1470,7 @@ def read_gamepad_config():
         "throttleInvert": int(d.get("GP_THROTTLE_INVERT", "0")) != 0,
         "steerDeadzone": int(d.get("GP_STEER_DEADZONE", "60")),
         "throttleDeadzone": int(d.get("GP_THROTTLE_DEADZONE", "80")),
+        "outputReversed": read_output_reversed(),
         "buttons": buttons, "servos": read_servo_endpoints(), "servoProfile": "config.h",
         "buttonChoices": GP_BUTTON_CHOICES, "functions": GP_FUNCTIONS,
     }
@@ -1504,6 +1525,9 @@ def write_gamepad_config(req):
     servos = {k: v for k, v in (req.get("servos") or {}).items() if re.match(r"CH\d[LCR]$", k)}
     if servos:
         write_servo_endpoints(servos)
+
+    if isinstance(req.get("outputReversed"), list):
+        write_output_reversed([bool(x) for x in req["outputReversed"]])
 
 
 # ─── HTTP Handler ────────────────────────────────────────────────────────────

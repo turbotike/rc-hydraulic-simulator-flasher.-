@@ -1377,6 +1377,15 @@ void mcpwmOutput() {
 
   mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, driveA); // GPIO13
   mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, driveB); // GPIO12
+  // Per-output direction flip (mirror around 1500) — for motors/actuators wired backwards.
+  // Index: 0=CH1 driveA, 1=CH2 driveB, 2=ESC im0, 3=CH4 im1, 4=CH3 im2, 5="32" im3.
+  if (outputReversed[0]) driveA = 3000 - driveA;
+  if (outputReversed[1]) driveB = 3000 - driveB;
+  if (outputReversed[2]) im0 = 3000 - im0;
+  if (outputReversed[3]) im1 = 3000 - im1;
+  if (outputReversed[4]) im2 = 3000 - im2;
+  if (outputReversed[5]) im3 = 3000 - im3;
+
   // Implement slots (valveCmd) → board headers: [0]=ESC(33), [1]=CH4(27), [2]=CH3(14), [3]=32.
   // im1 (slot 2, tilt) and im3 (slot 4, ripper) are swapped onto GPIO27/GPIO32 so the ripper
   // lands on the GPIO32 header and the three blade functions sit on ESC/CH3/CH4.
