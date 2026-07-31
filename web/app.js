@@ -832,7 +832,7 @@ function buildGamepadUI(root) {
 
   const gpOnly = c.mode === "gamepad";
   if (gpOnly) {
-    root.appendChild(el("div", "gpbadge", "⚠️ Experimental — controller support needs testing on real hardware."));
+    root.appendChild(el("div", "gpbadge", "🎮 Pair with SHARE+PS. Generic/clone controllers can be slow to connect — a genuine DS4/DualSense pairs fastest. Hold BOOT ~3s to re-pair a new one."));
   } else {
     // RC transmitter → pick which bus your receiver uses (moved off the Machine tab).
     const rcCard = el("div", "card");

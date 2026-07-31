@@ -126,6 +126,10 @@ Pick **Game controller** on the Machine tab and Flash. Then pair your pad:
 
 *(PS5 DualSense = Create + PS · Xbox = the small pair button on top.)*
 
+Once paired, the board **remembers** your controller — on later power-ups it reconnects on its own the moment you tap **PS** (no re-pairing). To pair a *different* controller, hold the ESP32's **BOOT** button for ~3 s while it's running.
+
+> **Connect time:** a **genuine** DS4/DualSense/Xbox pad connects in a couple of seconds. **Generic / clone** controllers have their own Bluetooth quirks and can take a while (or need a couple of tries) to pair — that's the clone, not the firmware. If one won't cooperate, a real first-party pad is the fix.
+
 **Default dozer layout:**
 
 | Control | Does |
@@ -180,7 +184,8 @@ Motors and actuators get wired however they land, so any output might run the wr
 | **No sound** | Check the speaker/amp wiring and the **Master volume** on the Levels tab. Make sure it's a **classic ESP32** (S3/C3 have no sound hardware). |
 | **Engine won't start** | It doesn't auto-start — press **△** (controller) or your engine-toggle channel. |
 | **A track drives the wrong way** | Flip that output in **Controls → Reverse output direction**. |
-| **Controller won't pair** | Re-do **SHARE + PS** until the light bar double-flashes. Make sure you flashed the **Game controller** build, and the pad isn't connected to a phone/PS4. |
+| **Controller won't pair / slow to connect** | Re-do **SHARE + PS** until the light bar double-flashes; make sure you flashed the **Game controller** build and the pad isn't connected to a phone/PS4. **Generic/clone controllers can be slow or need a few tries** — a genuine DS4/DualSense pairs fastest. Hold **BOOT** ~3 s to wipe bonds and pair fresh. |
+| **Faint hiss/Bluetooth noise from the speaker with the engine off** | This is the ESP32's Bluetooth radio coupling into the audio hardware — it's a board-layout trait, not a bug, and it's masked once the engine's running. If it bugs you, it's a hardware fix: a decoupling cap on the amp input, a ferrite on the speaker leads, or wire the amp's **mute/shutdown pin** so the firmware can cut it when idle (ask if your amp has one). |
 | **Page stuck / looks wrong after an update** | Hard-refresh the browser: **Ctrl + Shift + R**. Only run **one** copy of the app at a time. |
 | **"Nothing to save"** | You haven't changed anything since the last save. |
 
