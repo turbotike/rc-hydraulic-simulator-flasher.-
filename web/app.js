@@ -462,7 +462,7 @@ async function demoAuto(onThrottle, onStage) {
     if (!alive()) return;
     stage("🔧 Lowering the blade");    demoStartPump(); await sleep(1500);        // hydraulics engage
     if (!alive()) return;
-    stage("🚜 Driving forward");       demoStartTracks(); demoSwash(0.9); await glide(0.85, 1.0, 700);
+    stage("🚜 Driving forward");       demoStopPump(); demoStartTracks(); demoSwash(0.9); await glide(0.85, 1.0, 700); // no pump while just traveling
     await trackTo(0.3, 1.0, 900); demoSwash(1.0);                                 // swash strokes up, tracks pick up
     if (!alive()) return;
     // Push into the pile — swash stays stroked FULL (whine holds) but the tracks droop and slow.
@@ -473,8 +473,8 @@ async function demoAuto(onThrottle, onStage) {
     if (!alive()) return;
     stage("😮‍💨 Pulling out");          demoBog(false); demoStopRelief(); demoStartPump(1.0); demoSwash(1.0);
     await trackTo(0.3, 0.95, 1100);                                               // catches its breath, rolls on
-    stage("🛑 Stop");                  demoSwash(0); await trackTo(0.95, 0.2, 500); demoStopTracks(); await sleep(700);
-    stage("🔻 Back to idle");          demoStopPump(); await glide(1.0, 0, 1500); if (onThrottle) onThrottle(0);
+    stage("🛑 Stop");                  demoSwash(0); demoStopPump(); await trackTo(0.95, 0.2, 500); demoStopTracks(); await sleep(700); // blade's up, pump off
+    stage("🔻 Back to idle");          await glide(1.0, 0, 1500); if (onThrottle) onThrottle(0);
     await sleep(1400);
     stage("🔌 Shutting down");         await demoShutdown();
     await sleep(200); stage("");
