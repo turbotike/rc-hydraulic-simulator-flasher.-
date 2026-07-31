@@ -390,7 +390,7 @@ function demoTrackRate(speed) {
 }
 function demoStartPump(boost) { demoLoop(demoPumpRef, "hydraulicPumpSound", demoLvl("hydraulicPumpVolumePercentage", 100) * demoMaster() * (boost || 1)); }
 function demoStopPump() { demoLoopStop(demoPumpRef); }
-function demoStartRelief() { demoLoop(demoReliefRef, "hydraulicFlowSound", demoLvl("hydraulicFlowVolumePercentage", 150) * demoMaster() * 1.4, 1.0); }
+function demoStartRelief() { demoLoop(demoReliefRef, "hydraulicFlowSound", demoLvl("hydraulicFlowVolumePercentage", 150) * demoMaster() * 1.4, 0.6); }
 function demoStopRelief() { demoLoopStop(demoReliefRef); }
 function demoThrottle(t) { // crossfade idle→rev, spool the turbo, pitch up — all scaled by the Levels tab
   if (!demo) return;
