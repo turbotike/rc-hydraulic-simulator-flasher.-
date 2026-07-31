@@ -339,7 +339,7 @@ function demoLoopStop(nodeRef) {
   const n = nodeRef.n; nodeRef.n = null;
   try { n.g.gain.setTargetAtTime(0, audioCtx.currentTime, 0.12); setTimeout(() => { try { n.src.stop(); } catch (_) {} }, 300); } catch (_) {}
 }
-const demoTrackRef = { n: null }, demoPumpRef = { n: null }, demoReliefRef = { n: null };
+const demoTrackRef = { n: null }, demoReliefRef = { n: null };
 
 // Hydrostatic drive whine — a hydraulic pump track looped and pitched UP a bunch to sing like a
 // hydrostatic drive; the pitch rises with the swashplate. Level from the Levels tab.
@@ -392,8 +392,44 @@ function demoTrackRate(speed) {
   try { demoTrackRef.n.src.playbackRate.setTargetAtTime(r, audioCtx.currentTime, 0.2); } catch (_) {}
   try { demoTrackRef.n.g.gain.setTargetAtTime(g, audioCtx.currentTime, 0.2); } catch (_) {}
 }
-function demoStartPump(boost) { demoLoop(demoPumpRef, "hydraulicPumpSound", demoLvl("hydraulicPumpVolumePercentage", 100) * demoMaster() * (boost || 1)); }
-function demoStopPump() { demoLoopStop(demoPumpRef); }
+// Implement pump whine — same physics as the HST whine: on this machine the hydraulic pump is
+// basically the same as the hydrostatic one, so the whine comes from the PUMP STROKE (implement flow
+// demand), pitching and swelling with how hard it strokes. Silent at zero stroke → quiet while just
+// traveling (no implement flow), loud when a function is moving.
+const demoPump = { src: null, filt: null, g: null, stroke: 0 };
+function demoStartPump() {
+  if (demoPump.g || !audioCtx) return;
+  const f = slotFile("hydraulicPumpSound"); if (!f) return;
+  const filt = audioCtx.createBiquadFilter(); filt.type = "lowpass"; filt.frequency.value = 2200; filt.Q.value = 1;
+  const g = audioCtx.createGain(); g.gain.value = 0;
+  filt.connect(g); g.connect(demoAudioBus());
+  demoPump.filt = filt; demoPump.g = g;
+  loadSoundBuffer(f).then((b) => {
+    if (!demoPump.g) return; // stopped before it loaded
+    const src = audioCtx.createBufferSource(); src.buffer = b; src.loop = true;
+    src.playbackRate.value = 1.0; src.connect(filt); src.start();
+    demoPump.src = src; demoPumpStroke(demoPump.stroke);
+  }).catch(() => {});
+}
+function demoStopPump() {
+  const w = demoPump; if (!w.g) return;
+  const src = w.src; w.stroke = 0;
+  try { w.g.gain.setTargetAtTime(0, audioCtx.currentTime, 0.15); } catch (_) {}
+  setTimeout(() => { try { if (src) src.stop(); } catch (_) {} }, 400);
+  w.src = w.filt = w.g = null;
+}
+// Pump stroke 0..1 = implement flow demand: pitches and swells the whine, like swash does the HST.
+function demoPumpStroke(amount) {
+  const a = Math.max(0, Math.min(1, amount));
+  demoPump.stroke = a;
+  const w = demoPump; if (!w.g) return;
+  const now = audioCtx.currentTime;
+  const lvl = demoLvl("hydraulicPumpVolumePercentage", 100);
+  const rate = 1.0 + a * 1.2;                                  // strokes up in pitch with flow
+  if (w.src) { try { w.src.playbackRate.setTargetAtTime(rate, now, 0.3); } catch (_) {} }
+  try { w.filt.frequency.setTargetAtTime(1200 + a * 2600, now, 0.3); } catch (_) {}
+  try { w.g.gain.setTargetAtTime(demoMaster() * lvl * a, now, 0.2); } catch (_) {} // silent at zero stroke
+}
 function demoStartRelief() { demoLoop(demoReliefRef, "hydraulicFlowSound", demoLvl("hydraulicFlowVolumePercentage", 150) * demoMaster() * 1.4, 1.0); }
 function demoStopRelief() { demoLoopStop(demoReliefRef); }
 function demoThrottle(t) { // crossfade idle→rev, spool the turbo, pitch up — all scaled by the Levels tab
@@ -460,18 +496,19 @@ async function demoAuto(onThrottle, onStage) {
     stage("🔺 Throttle up");           await glide(0, 0.85, 1300);                // idle up
     await sleep(1200);                                                            // hold
     if (!alive()) return;
-    stage("🔧 Lowering the blade");    demoStartPump(); await sleep(1500);        // hydraulics engage
+    stage("🔧 Lowering the blade");    demoStartPump(); demoPumpStroke(0.75);    // pump strokes to feed the blade valve
+    await sleep(1300); demoPumpStroke(0.2); await sleep(500);                     // eases as the blade settles
     if (!alive()) return;
-    stage("🚜 Driving forward");       demoStopPump(); demoStartTracks(); demoSwash(0.9); await glide(0.85, 1.0, 700); // no pump while just traveling
+    stage("🚜 Driving forward");       demoStopPump(); demoStartTracks(); demoSwash(0.9); await glide(0.85, 1.0, 700); // no implement flow → pump quiet
     await trackTo(0.3, 1.0, 900); demoSwash(1.0);                                 // swash strokes up, tracks pick up
     if (!alive()) return;
     // Push into the pile — swash stays stroked FULL (whine holds) but the tracks droop and slow.
     stage("💥 Digging in — she's bogging!");
-    demoStartRelief(); demoStartPump(1.6); demoBog(true); demoSwash(1.0);
+    demoStartRelief(); demoStartPump(); demoPumpStroke(1.0); demoBog(true); demoSwash(1.0); // pump maxed against the cut
     await trackTo(1.0, 0.3, 1300);                                                // tracks lug down; whine holds up
     await sleep(1300);
     if (!alive()) return;
-    stage("😮‍💨 Pulling out");          demoBog(false); demoStopRelief(); demoStartPump(1.0); demoSwash(1.0);
+    stage("😮‍💨 Pulling out");          demoBog(false); demoStopRelief(); demoPumpStroke(0.6); demoSwash(1.0); // blade raising out of the cut
     await trackTo(0.3, 0.95, 1100);                                               // catches its breath, rolls on
     stage("🛑 Stop");                  demoSwash(0); demoStopPump(); await trackTo(0.95, 0.2, 500); demoStopTracks(); await sleep(700); // blade's up, pump off
     stage("🔻 Back to idle");          await glide(1.0, 0, 1500); if (onThrottle) onThrottle(0);
