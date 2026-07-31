@@ -204,6 +204,7 @@ volatile uint16_t hydraulicPumpVolumeArray[17];
 volatile uint16_t hydraulicFlowVolume = 0;
 volatile uint16_t trackRattleVolume = 0;
 volatile uint16_t trackRattle2Volume = 0;
+volatile uint16_t driveWhineVolume = 0;  // hydrostatic drive whine level/speed (0..100 from track speed)
 volatile uint32_t trackRattle2TriggerInterval = 0;
 volatile uint16_t hydraulicDependentKnockVolume = 100;
 volatile uint16_t hydraulicLoad = 0;
@@ -480,7 +481,7 @@ void IRAM_ATTR fixedPlaybackTimer() {
   static uint32_t curBucketRattleSample = 0;
   static int32_t a, a1, a2 = 0;
   static int32_t b, b0, b1, b2, b3, b4, b5, b6, b7, b8, b9 = 0;
-  static int32_t c, c2, c3, c4 = 0;
+  static int32_t c, c2, c3, c4, c5 = 0;
   static int32_t d, d1, d2 = 0;
   static boolean knockSilent = 0;
   static boolean knockMedium = 0;
@@ -664,10 +665,27 @@ void IRAM_ATTR fixedPlaybackTimer() {
     curBucketRattleSample = 0;
   }
 
+  // Hydrostatic drive whine — the cdc recording, pitched by TRACK SPEED (fixed-rate ISR, so it never
+  // screeches with engine rpm). Interpolated so the rate change stays smooth. Only while driving.
+  if (driveWhineVolume > 3 && cdcWhineSampleCount > 0) {
+    static uint32_t whinePhase = 0;
+    uint32_t widx = whinePhase >> 8, wfrac = whinePhase & 0xFF;
+    if (widx >= cdcWhineSampleCount) { widx = 0; whinePhase = 0; }
+    int32_t w0 = cdcWhineSamples[widx];
+    int32_t w1 = cdcWhineSamples[(widx + 1 < cdcWhineSampleCount) ? widx + 1 : 0];
+    int32_t winterp = w0 + (w1 - w0) * (int32_t)wfrac / 256;
+    c5 = (winterp * hydrostaticWhineVolumePercentage / 100 * driveWhineVolume / 100);
+    uint32_t wrate = 55 + driveWhineVolume * 85 / 100;   // ~55% low → ~140% at full pace (rises with speed)
+    whinePhase += wrate * 256 / 100;
+    if ((whinePhase >> 8) >= cdcWhineSampleCount) whinePhase -= (uint32_t)cdcWhineSampleCount << 8;
+  } else {
+    c5 = 0;
+  }
+
   // Mix & output to DAC2
   a = a1 + a2;
   b = b0 * 5 + b1 + b2 / 2 + b3 + b4 + b5 + b6 + b7 + b8 + b9;
-  c = c2 + c3 + c4;
+  c = c2 + c3 + c4 + c5;
   d = d1 + d2;
 
   // Engine fully OFF → mute the aux DAC too, so frozen/looping voices don't buzz at idle.
@@ -1338,9 +1356,9 @@ void updateGamepadRumble() {
       bool beat = (millis() % period) < (period / 2);
       if (beat) { trkS = 70 + trkSpd * 120 / 100; trkW = 45; }    // thump strength grows with speed
     } else {
-      bool beat = (millis() % 430) < 170;                         // parked idle lope — a bit more omph
-      trkW = beat ? 140 : 34;
-      trkS = beat ? 110 : 0;
+      bool beat = (millis() % 430) < 160;                         // parked idle lope (gentle)
+      trkW = beat ? 88 : 22;
+      trkS = beat ? 40 : 0;
     }
 
     weak   = (uint8_t)constrain(max(hydW, trkW), 0, 255);
@@ -1600,6 +1618,7 @@ void dozerControl() {
   int16_t trkSpd = (int16_t)constrain((abs((int)actualTrackL) + abs((int)actualTrackR)) / 10, 0, 100); // 0..100
   tracksAreRotating = (trkSpd > 3);
   trackRattleVolume = engineRunning ? (uint16_t)trkSpd : 0;
+  driveWhineVolume  = engineRunning ? (uint16_t)trkSpd : 0; // hydrostatic whine rides track speed too
 
   escInReverse = (actualTrackL < -20 && actualTrackR < -20); // both tracks driven backward
   escIsDriving = tracksAreRotating;

@@ -386,9 +386,9 @@ volatile int couplingVolumePercentage = 100;
 volatile int hydraulicPumpVolumePercentage = 65;
 #include "sounds/Caterpillar323Hydraulic.h"
 
-// --- Hydrostatic drive whine ("sing") — the deep pump/motor whine that rises with the swashplate.
-//     Level lives here so the flasher Levels tab and demo can use it (demo synthesizes it today). ---
+// --- Hydrostatic drive whine ("sing") — the cdc recording, pitched by track speed on the machine. ---
 volatile int hydrostaticWhineVolumePercentage = 160;
+#include "sounds/cdcWhine.h"
 
 // --- Hydraulic fluid flow ---
 volatile int hydraulicFlowVolumePercentage = 75;
