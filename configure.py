@@ -425,7 +425,7 @@ def write_config(cfg):
         "escBrakeSteps", "escAccelerationSteps",
         "hydraulicRampTime", "hydraulicDeadZone",
         "autoIdleDelayMs", "driveExpo", "hydrostaticWhineVolumePercentage",
-        "reversingBeepMode", "driveIdleCreepPercent",
+        "reversingBeepMode",
         "masterVolume", "indicatorOn",
         "hiLoRatioPercent",
         # Channel mapping
@@ -1255,9 +1255,6 @@ def spa_schema():
         sel("reversingBeepMode", "Reversing beeper", str(cfg.get("reversingBeepMode", 1)),
             [("1", "Reverse only"), ("2", "Forward + reverse"), ("0", "Off")],
             "The backup beeper: off, only when backing up, or whenever the machine moves."),
-        sld("driveIdleCreepPercent", "Idle creep", cfg.get("driveIdleCreepPercent", 28),
-            0, 70, 2, "%", "How much the tracks still move at idle throttle. 0 = fully stalls at idle; "
-            "higher = it creeps without touching the throttle."),
     ]}
 
     # Levels tab: only the volumes that matter on construction equipment. The engine sound packs
