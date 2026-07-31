@@ -1,272 +1,159 @@
-# RC Construction Machine Sound & Hydraulic Simulator
+# RC Construction Machine — Sound, Hydraulics & Lights
 
-Realistic engine sound, hydraulic pump whine, track rattle, horn, backup beep, headlights, work lights and servo outputs — all from a single ESP32 board in your RC construction vehicle.
+Turn one little ESP32 board into the brain of your RC construction machine: **real diesel engine sound, hydraulic pump whine, a relief-valve squeal when it digs in, track rattle, horn, backup beep, work lights, and 6 servo/ESC outputs** — for dozers, excavators, loaders, cranes, graders, skid steers and backhoes.
 
-Built for **complete beginners**. If you can plug in a USB cable and click a button, you can flash this firmware. The web configurator does everything for you — no Arduino IDE, no command lines, no editing C++ code.
+**Made for complete beginners.** No coding, no Arduino IDE, no command line. You download one app, click through some menus, plug in a USB cable, and hit **Flash**. That's it. The app quietly downloads everything it needs the first time.
 
-Based on [TheDIYGuy999's RC_Engine_Sound_ESP32](https://github.com/TheDIYGuy999/Rc_Engine_Sound_ESP32) sound engine, stripped down and rebuilt specifically for hydraulic construction machines (excavators, dozers, loaders, cranes, graders, skid steers).
+Drive it with your normal **RC transmitter** *or* a **PS4 / PS5 / Xbox controller** over Bluetooth.
+
+Based on [TheDIYGuy999's RC_Engine_Sound_ESP32](https://github.com/TheDIYGuy999/Rc_Engine_Sound_ESP32) sound engine, rebuilt around hydraulic construction machines.
 
 ![logo](logo.png)
 
 ---
 
-## Table of Contents
+## Contents
 
-1. [What You Need](#what-you-need)
-2. [Step 1 — Install the Software](#step-1--install-the-software)
-3. [Step 2 — Download This Project](#step-2--download-this-project)
-4. [Step 3 — Open the Web Configurator](#step-3--open-the-web-configurator)
-5. [Step 4 — Pick Your Machine](#step-4--pick-your-machine)
-6. [Step 5 — Plug In Your ESP32](#step-5--plug-in-your-esp32)
-7. [Step 6 — Build & Flash](#step-6--build--flash)
-8. [Step 7 — Wire It Up](#step-7--wire-it-up)
-9. [The Sound Lab](#the-sound-lab)
-10. [Pin Reference](#pin-reference)
-11. [Troubleshooting](#troubleshooting)
-12. [FAQ](#faq)
+1. [What you need](#what-you-need)
+2. [Quick start (5 steps)](#quick-start-5-steps)
+3. [The configurator tabs](#the-configurator-tabs)
+4. [Wiring it up](#wiring-it-up)
+5. [Driving with a game controller](#driving-with-a-game-controller)
+6. [Work lights](#work-lights)
+7. [Sounds — use the Sound Technician](#sounds--use-the-sound-technician)
+8. [Reversing an output that runs backwards](#reversing-an-output-that-runs-backwards)
+9. [Troubleshooting](#troubleshooting)
+10. [FAQ](#faq)
 
 ---
 
-## What You Need
-
-### Hardware
+## What you need
 
 | Part | Notes |
-|------|-------|
-| **ESP32 Dev Board** | Must be a **classic ESP32** (ESP32-WROOM-32 or ESP32-D0WD). **ESP32-S3, S2, C3, C6 do NOT work** — they have no hardware DAC. The [TheDIYGuy999 sound controller PCB v1.2](https://github.com/TheDIYGuy999/Rc_Engine_Sound_ESP32) is the recommended board. |
-| **Speaker + Amp** | A small 4–8 Ω speaker driven by a PAM8403 (or any small Class-D amp). Engine sound comes out of **GPIO 25**, horn/aux out of **GPIO 26**. |
-| **RC Receiver** | FlySky IBUS, Futaba SBUS, Graupner SUMD, PPM, or up to 6 PWM channels. |
-| **5 V Power Supply** | A BEC/UBEC from your ESC, or a separate 5 V battery. ESP32 takes 5 V on the VIN pin. |
-| **USB Cable** | Micro-USB or USB-C (whichever your board has). Used for flashing only — not needed once installed. |
-
-### Software (One-Time Setup)
-
-You only install these once. After that, just open the configurator and click buttons.
-
-- **VS Code** — the editor that runs PlatformIO
-- **PlatformIO** — builds the firmware
-- **Python 3.10+** — runs the web configurator
-- **Git** *(optional)* — for downloading and updating the project
+|------|------|
+| **ESP32 board** | Must be a **classic ESP32** (ESP32-WROOM-32 / D0WD). **S3, S2, C3, C6 do NOT work** — they have no built-in sound (DAC) hardware. |
+| **The DIYGuy999 Sound & Light Controller PCB** | v1.2 SMD 30-pin board — the recommended carrier. It breaks out all the headers you'll wire to (CH1–CH6, ESC, 32, lights, speaker). |
+| **Small speaker + amp** | 4–8 Ω speaker on a PAM8403 (or any tiny Class-D amp). The board has one on it. |
+| **Motor drivers** | An **ESC** for each track/drive motor, and an **H-bridge / actuator driver** for each 12 V linear actuator, or a servo for each blade function. The board sends *signals*, not power. |
+| **RC receiver *or* a game controller** | RC: FlySky iBUS, Futaba SBUS, or PWM. Or a PS4 / PS5 / Xbox pad (Bluetooth — no receiver needed). |
+| **5 V power** | A BEC/UBEC from your ESC, or a 5 V battery, into the board's 5 V input. |
+| **USB cable** | To flash it the first time. Not needed after that. |
 
 ---
 
-## Step 1 — Install the Software
+## Quick start (5 steps)
 
-### 1a. Install VS Code
-1. Go to **[https://code.visualstudio.com](https://code.visualstudio.com)**
-2. Click the big blue **Download** button
-3. Run the installer — accept all defaults
-4. Open VS Code when it finishes
+### 1. Get the configurator
+Go to the **[Releases page](../../releases)** and download the app for your computer:
+- **Windows** → `RC-Hydraulic-Configurator-Windows.zip`
+- **Mac** → `RC-Hydraulic-Configurator-macOS.zip`
 
-### 1b. Install PlatformIO inside VS Code
-1. In VS Code, click the **Extensions** icon on the left sidebar (or press `Ctrl+Shift+X`)
-2. Type **PlatformIO IDE** in the search box
-3. Click the blue **Install** button on the first result
-4. Wait — it downloads compilers automatically (3–5 minutes the first time)
-5. When it says "Please restart VS Code," click **Restart**
+Unzip it and run **RC Hydraulic Configurator**. Your web browser opens the configurator automatically.
 
-### 1c. Install Python
-1. Go to **[https://www.python.org/downloads/](https://www.python.org/downloads/)**
-2. Click **Download Python 3.x** (any 3.10 or newer)
-3. Run the installer
-4. **CRITICAL:** Check the box **"Add python.exe to PATH"** at the bottom of the first screen before clicking Install
-5. Click **Install Now**
+> First run only: when you Flash, it downloads the ESP32 build tools (a few minutes, one time). After that it's instant.
 
-To verify it worked, open PowerShell and type:
-```
-python --version
-```
-You should see something like `Python 3.12.3`. If you see "command not found," reinstall and make sure the PATH box was checked.
+### 2. Pick your machine
+On the **Machine** tab, choose your machine (**Dozer, Excavator, Loader, Crane, Grader, Skid Steer, or Backhoe**) and how you'll drive it (**RC transmitter** or **Game controller**).
 
-### 1d. Install Git *(optional but recommended)*
-1. Go to **[https://git-scm.com/downloads](https://git-scm.com/downloads)**
-2. Download for Windows, run the installer, accept all defaults
+### 3. Set your sounds & levels *(optional)*
+The **Sound Technician** tab lets you pick engine/pump/horn sounds. The **Levels** tab sets how loud each one is. You can skip this and tune it later.
+
+### 4. Plug in the ESP32 and Flash
+Connect the board with USB, then click **⚡ Flash** at the top. It finds the board, builds, and uploads. Watch the log — when it says done, it's on the board.
+
+### 5. Wire it up and go
+Plug your ESCs/servos into the output headers (see [Wiring](#wiring-it-up)), power it up, and press the engine-start button (Triangle on a controller). 🚜
 
 ---
 
-## Step 2 — Download This Project
+## The configurator tabs
 
-### Option A — Using Git (recommended, easy to update later)
-Open PowerShell anywhere (Windows key → type "powershell" → Enter) and run:
-```powershell
-cd $HOME\Documents
-git clone https://github.com/turbotike/rc-hydraulic-simulator-flasher.-.git HydraulicController
-cd HydraulicController
-```
+| Tab | What it does |
+|-----|--------------|
+| **🚜 Machine** | Pick the machine type and the input (RC transmitter / game controller / RC protocol). |
+| **🎚️ Levels** | Volume mixer — master volume, engine, pump, relief, rattle, horn, etc. |
+| **🔊 Sound Technician** | Choose the actual sound for each slot, preview it, or upload your own WAV. |
+| **🎮 Controls** | Map controller sticks/buttons to each function, reverse any output, and set the drive feel. |
+| **⚡ Flash** | Build and upload to the board. |
 
-### Option B — Download ZIP
-1. Go to the GitHub page
-2. Click the green **Code** button → **Download ZIP**
-3. Extract the ZIP into `Documents\HydraulicController`
+**One Save button.** The **Save** button at the top saves *everything* across all tabs. **Flash** saves first, then uploads — so you never flash a stale setup.
 
 ---
 
-## Step 3 — Open the Web Configurator
+## Wiring it up
 
-This is where the magic happens. Everything is done in a browser.
+Every machine drives the same **6 output headers** on the board. What each one does follows the machine you picked — the labels in the app tell you exactly where to plug in. For a **dozer**:
 
-### Easiest way — double-click
-1. Open the `HydraulicController` folder in File Explorer
-2. Double-click **`Open Configurator.bat`**
-3. A black PowerShell window pops up, then your default browser opens to **http://localhost:8080**
+| Board header | Drives | Plug in |
+|--------------|--------|---------|
+| **CH1** | Right track | Track ESC |
+| **CH2** | Left track | Track ESC |
+| **ESC** | Blade lift | Actuator driver / servo |
+| **CH4** | Blade tilt | Actuator driver / servo |
+| **CH3** | Blade angle | Actuator driver / servo |
+| **32** | Ripper | Actuator driver / servo |
 
-### Alternative — from VS Code
-1. **File → Open Folder** → pick the `HydraulicController` folder
-2. Open a terminal: **Terminal → New Terminal** (or `` Ctrl+` ``)
-3. Type:
-   ```
-   python configure.py
-   ```
-4. Your browser opens automatically
+> Switch the machine (e.g. Excavator) and the same headers become boom / stick / bucket / swing — the Controls tab always shows the current labels.
 
-> **Leave the PowerShell/terminal window open while you use the configurator.** Closing it stops the web server.
+**Sound:** the board's speaker output comes off the two DAC pins (GPIO 25 = engine + pump, GPIO 26 = knock/horn/relief) into the onboard amp → your speaker.
 
----
+**Power:** 5 V into the board's 5 V input (from a BEC or a 5 V battery). Never feed more than 3.3 V into a signal pin.
 
-## Step 4 — Pick Your Machine
-
-In the web UI, the **left sidebar** has tabs. Click them in order:
-
-### 1. **Machine** tab
-- Pick your machine type: **Excavator**, **Dozer**, **Loader**, **Crane**, **Skid Steer**, or **Grader**
-- Optionally type a name for your build (saved in the firmware as a comment)
-
-### 2. **Vehicle Profiles**
-- Click **Load Profile** to pre-fill the entire config from a known-good vehicle (e.g. *CAT 730*, *Volvo EC550E*, *Caterpillar D6 Dozer*)
-- This is the **fastest path to a working build** — pick a profile that matches your machine, click load, then jump straight to Build
-
-### 3. **Sounds** tab
-- Each row is a sound slot: idle, rev, knock, turbo, horn, brake, hydraulic pump, track rattle, etc.
-- Use the **dropdown** to pick which sound file plays for that slot
-- Use the **slider** to set its volume (0–200%)
-- The **Sound Lab** button opens the live editor (see below)
-
-### 4. **RC** tab
-- Pick your protocol: **IBUS** (FlySky), **SBUS** (Futaba), **SUMD** (Graupner), **PPM**, or **PWM**
-- Assign which channel controls what (throttle, steering, lights, horn, etc.)
-- Reverse any channels if your transmitter sticks are inverted
-
-### 5. **ESC**, **Servos**, **Lights** tabs
-- Tweak acceleration, braking, ramp time, servo end-points, light cycle behavior
-- Defaults from a vehicle profile are already sensible — leave alone if unsure
+> **CH5 and CH6 are inputs only** (they're input-only pins on the ESP32) — you can read two extra RC channels on them, but you can't drive anything from them. Your 6 outputs live on CH1 / CH2 / CH3 / CH4 / ESC / 32.
 
 ---
 
-## Step 5 — Plug In Your ESP32
+## Driving with a game controller
 
-1. Plug the ESP32 board into your PC with a USB cable
-2. Windows will install drivers automatically (give it 30 seconds the first time)
-3. If Windows can't find a driver, install the right one for your board:
-   - **CP2102** chip → [Silicon Labs CP210x driver](https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers)
-   - **CH340** chip → [WCH CH340 driver](http://www.wch-ic.com/downloads/CH341SER_EXE.html)
-4. Open Device Manager (Windows key → "Device Manager") → expand **Ports (COM & LPT)**
-5. You should see something like **Silicon Labs CP210x USB to UART Bridge (COM8)** — note the COM number
+Pick **Game controller** on the Machine tab and Flash. Then pair your pad:
 
----
+**PS4 (DualShock 4):** with the controller off, hold **SHARE + PS** for ~3–5 s until the light bar **double-flashes**. The board grabs it — light bar goes **solid** = connected.
 
-## Step 6 — Build & Flash
+*(PS5 DualSense = Create + PS · Xbox = the small pair button on top.)*
 
-In the web UI:
+**Default dozer layout:**
 
-1. Click the **Build** tab
-2. Click the **COM Port** dropdown — pick your ESP32's port (e.g. COM8)
-3. Click the big **Build & Flash** button
-4. Watch the log window. It will:
-   - Compile the firmware (30 sec – 2 min depending on your PC)
-   - Upload it over USB (10–20 sec)
-   - Show a green ✅ when done
-5. **That's it.** Unplug USB. Your ESP32 now runs your custom config.
+| Control | Does |
+|---------|------|
+| **Left stick** | Drive + steer |
+| **Right stick ↕** | Blade lift |
+| **L2 / R2** | Ripper down / up |
+| **D-pad ↕** | Throttle (hand-throttle — it holds where you leave it) |
+| **✕** | Work lights (cycles off → front → rear → side) |
+| **□** | Hi / Lo gear |
+| **○** | Horn |
+| **△** | Engine start / stop |
 
-> **First build takes longer** because PlatformIO downloads the ESP32 toolchain. Subsequent builds are much faster.
-
-### If the upload step fails
-- Hold the **BOOT** button on the ESP32 while clicking Build & Flash
-- Release BOOT once you see "Connecting…" in the log
-- If it still fails, try a different USB cable (some are charge-only)
+Nothing runs until you **press △ to start the engine**. Blade **tilt** and **angle** are unassigned by default — map them (to the bumpers or D-pad ◂▸) in **Controls → Output mapping**.
 
 ---
 
-## Step 7 — Wire It Up
+## Work lights
 
-Power off the ESP32 first. Use the table below.
+Press the **lights button** (✕ on a controller, or your lights channel on RC) to step through — each press **adds** the next set and they stay on:
 
-| ESP32 Pin | Connect To | Notes |
-|-----------|-----------|-------|
-| **5V (VIN)** | BEC / 5V battery + | Power input |
-| **GND** | BEC / battery − | Common ground (also tie receiver GND here) |
-| **GPIO 36** | Receiver signal pin | SBUS/IBUS/SUMD/PPM input. For PWM, use the per-channel pins below. |
-| **GPIO 25** | Amp left input | Engine sound DAC1 |
-| **GPIO 26** | Amp right input | Horn / aux DAC2 (optional, can tie to same speaker) |
-| **GPIO 33** | ESC signal wire | 3.3 V — most ESCs work; if not, add a 3.3→5V level shifter |
-| **GPIO 13** | Servo CH1 signal | Steering / left track |
-| **GPIO 12** | Servo CH2 signal | Shifting / right track |
-| **GPIO 14** | Servo CH3 signal | Boom / winch |
-| **GPIO 27** | Servo CH4 signal | Bucket / blade |
-| **GPIO 3**  | Headlight LED + | Through a current-limit resistor (e.g. 220 Ω for a 3 mm white LED) |
-| **GPIO 22** | Work-light LED + | Same — resistor required |
+**off → front → front + rear → front + rear + side → off**
 
-> **Don't bridge VIN to 3V3.** VIN takes 5 V; 3V3 is the regulator output.
+Wire your LED light bars (with resistors) to these headers: **front = HEADL**, **rear = FOGL**, **side = ROOFL**. They're simple on/off outputs through the board's built-in LED drivers.
 
 ---
 
-## The Sound Lab
+## Sounds — use the Sound Technician
 
-The Sound Lab is a built-in audio editor that runs in your browser. No Audacity needed.
+Each sound slot has a dropdown that shows **only the sounds that fit it** (the start slot lists start clips, idle lists idles, etc.). Hit **▶** to preview.
 
-1. Open the **Sound Lab** tab
-2. Browse all `.h` sound files in the left list — click any one to load it
-3. **Preview** button — plays it through your PC speakers
-4. **Import WAV** — drag any `.wav` file from your computer into the panel
-5. Adjust:
-   - **Loop start / loop end** — for engine idle/rev loops, trim to a single cycle
-   - **Speed** — pitch-shift up or down
-   - **Smoothing** — low-pass filter to take harsh edges off
-   - **Crossfade** — smooths the loop join (set to 0 for one-shot sounds like horn or startup)
-6. **Install** — saves it back as a `.h` file with a name you choose
-7. **Trash icon** — deletes a sound file from the project
-8. The sound is now selectable in the **Sounds** tab
+**Record your own machine!** Click **＋ Change → ⬆ Upload WAV** on any slot. A mono WAV (~22 kHz works best) gets converted and installed automatically.
+- **Start** = one-shot crank.
+- **Idle** and **Rev** should be **steady, loopable** recordings of the *same engine* at low vs high RPM (the sim crossfades and loops them).
+- Name files with the keyword (…`Start.wav`, …`Idle.wav`, …`Rev.wav`) so they land in the right dropdown.
 
-> Tip: 22 050 Hz mono 8-bit signed is the sweet spot. The Sound Lab auto-converts.
+Delete clips you don't want with the **🗑** in the browser (you can't delete one that's currently in use — pick another for that slot first).
 
 ---
 
-## Pin Reference
+## Reversing an output that runs backwards
 
-| GPIO | Function |
-|------|----------|
-| 36 | RC input (SBUS/IBUS/SUMD/PPM) |
-| 25 | DAC1 — Engine sound output |
-| 26 | DAC2 — Horn / aux sound output |
-| 13 | Servo CH1 (steering / left track) |
-| 12 | Servo CH2 (shifting / right track) |
-| 14 | Servo CH3 (boom / winch) |
-| 27 | Servo CH4 (bucket / blade) |
-| 33 | ESC output |
-| 3  | Headlights |
-| 22 | Work lights |
-
----
-
-## Lights
-
-Lights are controlled by the RC lights channel (default CH6). Each switch press cycles through:
-
-1. **Press 1** — Headlights ON (GPIO 3)
-2. **Press 2** — Headlights + Work lights ON (GPIO 3 + 22)
-3. **Press 3** — All OFF
-
----
-
-## Machine Modes
-
-| Mode | Controls |
-|------|----------|
-| **Dozer** | Left track, right track, blade, ripper, tilt |
-| **Excavator** | Boom, stick, bucket, swing, left track, right track |
-| **Loader** | Boom, bucket, steering |
-| **Crane** | Boom, extend, swing |
-| **Skid Steer** | Boom, bucket |
-| **Grader** | Blade, circle, tilt, articulation |
+Motors and actuators get wired however they land, so any output might run the wrong way. In **Controls → Reverse output direction**, each of the 6 outputs has a **Reverse** toggle. If a track drives backward or an actuator extends when it should retract, flip its toggle, **Save**, and **Flash**. Once per output and it's set.
 
 ---
 
@@ -274,54 +161,30 @@ Lights are controlled by the RC lights channel (default CH6). Each switch press 
 
 | Problem | Fix |
 |---------|-----|
-| **`python` not recognized** | Reinstall Python and make sure **"Add python.exe to PATH"** is checked. Restart PowerShell. |
-| **Web UI won't open** | Make sure no other program is using port 8080. Look at the PowerShell window — it shows the URL it's serving on. |
-| **No sound at all** | Check speaker wiring on GPIO 25/26. Check `masterVolume` slider in the web UI is not at 0. Check amp has 5 V power. |
-| **Sound is distorted/clipping** | Drop the per-sound volume sliders to ~80–100 %. Master volume to 70 %. |
-| **COM port not showing in dropdown** | Install the CP2102 or CH340 USB driver. Click the **Refresh** button next to the dropdown. Try a different USB cable. |
-| **Upload fails ("Failed to connect")** | Hold the **BOOT** button on the ESP32 while clicking Build & Flash. Release once you see "Connecting…". |
-| **ESC won't arm** | The ESP32 outputs 3.3 V on GPIO 33. Most ESCs accept this, but some need 5 V — add a level shifter. |
-| **Build fails after editing config** | The web UI auto-fixes config corruption on save. Close the browser, re-open the configurator, click **Save Settings** once, then **Build & Flash** again. |
-| **"Settings reset after save"** | Fixed — the configurator now correctly preserves all defines and slot assignments across saves. |
-| **Sounds dropdown is empty** | Make sure the `src/sounds/` folder has `.h` files in it. If empty, re-download the project. |
-| **Garbled sound at startup** | The DAC offset fade-in handles this. If you still get a pop, lower master volume slightly or add a 100 µF cap across the speaker leads. |
+| **Flash can't find the board** | Try a different USB cable/port (some cables are charge-only). Install the CP2102 or CH340 USB driver for your board. |
+| **No sound** | Check the speaker/amp wiring and the **Master volume** on the Levels tab. Make sure it's a **classic ESP32** (S3/C3 have no sound hardware). |
+| **Engine won't start** | It doesn't auto-start — press **△** (controller) or your engine-toggle channel. |
+| **A track drives the wrong way** | Flip that output in **Controls → Reverse output direction**. |
+| **Controller won't pair** | Re-do **SHARE + PS** until the light bar double-flashes. Make sure you flashed the **Game controller** build, and the pad isn't connected to a phone/PS4. |
+| **Page stuck / looks wrong after an update** | Hard-refresh the browser: **Ctrl + Shift + R**. Only run **one** copy of the app at a time. |
+| **"Nothing to save"** | You haven't changed anything since the last save. |
 
 ---
 
 ## FAQ
 
-**Can I use an ESP32-S3 / C3 / C6?**
-No. Those chips have **no hardware DAC**. This firmware uses the classic ESP32's DAC1/DAC2 on GPIO 25/26 to generate analog audio directly. You'd need to rewrite the audio path to use I²S + an external DAC like a MAX98357A.
+**Do I need to know how to code?** No. You never touch code — the app does everything.
 
-**Can I run multiple machines from one ESP32?**
-One firmware build = one machine config. But swapping is fast — pick a different vehicle profile in the web UI, click Build & Flash, done.
+**RC or a game controller — which is better?** RC if you already fly with a transmitter. A game controller is the easiest way to just pick it up and drive (Bluetooth, no receiver).
 
-**Can I add my own engine sound?**
-Yes — drop a `.wav` file into the **Sound Lab** tab, trim the loop, click Install. Or convert a WAV to `.h` externally and drop it in `src/sounds/`.
+**Can I run more than one machine type?** The firmware builds for one machine at a time. Change it on the Machine tab and re-flash to switch.
 
-**Does this work without an RC receiver?**
-For testing yes — set the protocol to PWM and leave channels unconnected, the firmware will idle. For real use you need a receiver.
+**Which machines actually work?** All 7 build and run. The **dozer** is the most-tested; the others share the same proven core — bench-test each when you build it.
 
-**How do I update the project later?**
-If you used Git:
-```powershell
-cd $HOME\Documents\HydraulicController
-git pull
-```
-If you used ZIP, just download the new ZIP and overwrite (back up your `src/config.h` first).
+**Do I need the internet?** Only the very first Flash (to download the build tools once) and to grab your own sounds. After that it runs offline.
 
-**Where's my config saved?**
-In `src/config.h`. Every time you click **Save Settings** in the web UI, that file is rewritten. You can hand-edit it too, but the web UI is safer — it auto-handles variable-name conflicts and missing includes.
+**Where do my settings live?** In the machine's config — saved when you press **Save**, and baked into the firmware when you **Flash**.
 
 ---
 
-## License
-
-Based on [TheDIYGuy999's RC_Engine_Sound_ESP32](https://github.com/TheDIYGuy999/Rc_Engine_Sound_ESP32). See the original project for license details.
-
----
-
-## Credits
-
-- **TheDIYGuy999** — original sound engine, PCB design, sound samples
-- **turbotike** — hydraulic-machine fork, web configurator, Sound Lab, Vehicle Profiles
+Built on the open-source [TheDIYGuy999 sound engine](https://github.com/TheDIYGuy999/Rc_Engine_Sound_ESP32). Have fun building. 🚜
