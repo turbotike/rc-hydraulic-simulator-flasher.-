@@ -827,7 +827,7 @@ function buildGamepadUI(root) {
     return card;
   };
   modeWrap.append(
-    mk("webui", "🎚️", "RC transmitter", "Drive with your normal RC radio. Set the protocol on the Machine tab."),
+    mk("webui", "🎚️", "RC transmitter", "Drive with your normal RC radio. Pick your protocol below."),
     mk("gamepad", "🎮", "Game controller", "Drive with a PS4 / PS5 / Xbox pad over Bluetooth.")
   );
   root.appendChild(modeWrap);
@@ -835,6 +835,24 @@ function buildGamepadUI(root) {
   const gpOnly = c.mode === "gamepad";
   if (gpOnly) {
     root.appendChild(el("div", "gpbadge", "⚠️ Experimental — controller support needs testing on real hardware."));
+  } else {
+    // RC transmitter → pick which bus your receiver uses (moved off the Machine tab).
+    const rcCard = el("div", "card");
+    rcCard.appendChild(el("div", "sound-cat", "RC protocol"));
+    rcCard.appendChild(el("p", "pane-sub", "How your RC receiver sends its channels to the board."));
+    const row = el("div", "ctrl");
+    const meta = el("div", "meta"); meta.appendChild(el("div", "name", "Receiver protocol"));
+    row.appendChild(meta);
+    const inp = el("div", "input");
+    const selEl = el("select");
+    [["IBUS_COMMUNICATION", "IBUS (FlySky)"], ["SBUS_COMMUNICATION", "SBUS (Futaba / FrSky)"],
+     ["PWM_COMMUNICATION", "PWM (separate channel wires)"]].forEach(([v, l]) => {
+      const o = el("option"); o.value = v; o.textContent = l; selEl.appendChild(o);
+    });
+    selEl.value = c.rcProtocol || "IBUS_COMMUNICATION";
+    selEl.onchange = () => { c.rcProtocol = selEl.value; };
+    inp.appendChild(selEl); row.appendChild(inp); rcCard.appendChild(row);
+    root.appendChild(rcCard);
   }
 
   // --- Reverse output direction (both modes) — for motors/actuators wired backwards ---

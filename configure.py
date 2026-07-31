@@ -1240,10 +1240,6 @@ def spa_schema():
              ("DOZER_MODE", "Dozer"), ("SKIDSTEER_MODE", "Skid Steer"), ("GRADER_MODE", "Grader"),
                     ("BACKHOE_MODE", "Backhoe Loader")],
             "Which machine this firmware drives."),
-        sel("rcProtocol", "Input source", cfg.get("rcProtocol"),
-            [("IBUS_COMMUNICATION", "IBUS"), ("SBUS_COMMUNICATION", "SBUS"),
-             ("PWM_COMMUNICATION", "PWM"), ("GAMEPAD_MODE", "🎮 Gamepad (PS4 / PS5 / Xbox)")],
-            "How the controller receives input. Gamepad is Bluetooth — one radio, so it's the pad OR an RC bus, not both."),
         sel("driveMode", "Dozer drive", cfg.get("driveMode"),
             [("DRIVE_SINGLE_STICK_MIX", "Single joystick (mixed to both tracks)"),
              ("DRIVE_DUAL_STICK", "Dual stick (one per track)")],
@@ -1476,9 +1472,13 @@ def read_gamepad_config():
     buttons = {name: _gp_norm_mask(d.get(name, dflt), _gp_norm_mask(dflt))
                for name, _l, dflt in GP_FUNCTIONS}
     output_list = MACHINE_OUTPUTS.get(cfg.get("machineType"), GP_OUTPUTS)  # labels follow the machine
+    _rc_buses = ("IBUS_COMMUNICATION", "SBUS_COMMUNICATION", "PWM_COMMUNICATION",
+                 "SUMD_COMMUNICATION", "PPM_COMMUNICATION")
+    _rcp = cfg.get("rcProtocol")
+    _rc_bus = _rcp if _rcp in _rc_buses else "IBUS_COMMUNICATION"
     return {
         "mode": "gamepad" if cfg.get("rcProtocol") == "GAMEPAD_MODE" else "webui",
-        "prevComm": "IBUS_COMMUNICATION",
+        "prevComm": _rc_bus, "rcProtocol": _rc_bus,   # the chosen RC bus (Controls tab picks it)
         "machineType": cfg.get("machineType"),
         "tankmix": int(d.get("GP_TANKMIX", "1")) != 0,
         "rumble": int(d.get("GP_RUMBLE", "0")) != 0,
@@ -1542,10 +1542,14 @@ def write_gamepad_config(req):
     with open(GP_CONFIG_PATH, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
-    # Mode: gamepad <-> RC input source (reuses write_config's rcProtocol handling).
+    # Mode + RC bus: the Controls tab picks gamepad OR which RC protocol (IBUS/SBUS/PWM/…).
+    _rc_buses = ("IBUS_COMMUNICATION", "SBUS_COMMUNICATION", "PWM_COMMUNICATION",
+                 "SUMD_COMMUNICATION", "PPM_COMMUNICATION")
+    rc_bus = req.get("rcProtocol") or req.get("prevComm") or "IBUS_COMMUNICATION"
+    if rc_bus not in _rc_buses:
+        rc_bus = "IBUS_COMMUNICATION"
     full = read_config()
-    full["rcProtocol"] = "GAMEPAD_MODE" if req.get("mode") == "gamepad" else \
-        (req.get("prevComm") or "IBUS_COMMUNICATION")
+    full["rcProtocol"] = "GAMEPAD_MODE" if req.get("mode") == "gamepad" else rc_bus
     write_config(full)
 
     servos = {k: v for k, v in (req.get("servos") or {}).items() if re.match(r"CH\d[LCR]$", k)}
