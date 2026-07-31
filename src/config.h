@@ -68,19 +68,11 @@ int16_t counterRotScale = 80;   // % throw allowed while counter-rotating (spin 
 int16_t driveDroopRefRpm = 450; // engine rpm for full track speed — throttle down = lower rpm = slower
 
 // --- Implement (proportional valve) model: [lift, tilt, angle, ripper] ---
-int16_t cylStroke[4]      = {1000, 800, 800, 900}; // cylinder travel units (for end-stop detection)
-int16_t cylSpeed[4]       = {30, 40, 40, 30};      // position units per 20ms per full spool (derived from cylStrokeMs)
 uint8_t implFlowWeight[4] = {40, 25, 25, 35};      // % pump load each function draws at full flow
-// Full-stroke TIME (ms) per implement [lift, tilt, angle, ripper] — the ONLY per-build number the
-// end-stop model needs. Set on the machine via teach mode (hold horn 3s, run each function
-// stop-to-stop); saved to NVS. cylSpeed is derived from this so end-stop relief matches YOUR build.
-int32_t cylStrokeMs[4]    = {667, 400, 400, 600};
 
-// --- Relief valve / pump capacity ---
+// --- Pump load ---
 int16_t driveFlowWeight   = 60;  // how hard the tracks load the pump/engine
-int16_t pumpFlowCapacity  = 140; // total flow the engine can supply at ref rpm
-int16_t reliefSquealVol   = 150; // relief-valve squeal volume
-uint16_t reliefHoldMs     = 140; // debounce so the relief cue is steady, not stuttering
+int16_t pumpFlowCapacity  = 140; // total flow at ref rpm — the governor bogs when demand nears this
 
 // --- Engine governor (dozer): holds rpm, sags under load, lugs when bogged ---
 int16_t sagAttack       = 6;   // rpm/tick the governor bogs under load (fast)

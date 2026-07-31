@@ -1204,13 +1204,11 @@ CONSTRUCTION_LEVELS = [
     "startVolumePercentage", "idleVolumePercentage", "revVolumePercentage",
     "fullThrottleVolumePercentage", "turboVolumePercentage",
     "hydraulicPumpVolumePercentage", "hydrostaticWhineVolumePercentage",
-    "hydraulicFlowVolumePercentage",
     "trackRattleVolumePercentage", "bucketRattleVolumePercentage",
     "hornVolumePercentage", "reversingVolumePercentage",
 ]
 # A few Levels sliders get a clearer label than the auto-prettified variable name.
 LEVEL_LABELS = {
-    "hydraulicFlowVolumePercentage": "Relief squeal",   # flow voice is the relief cue now
     "hydraulicPumpVolumePercentage": "Hydraulic pump",
     "hydrostaticWhineVolumePercentage": "Drive whine",
 }

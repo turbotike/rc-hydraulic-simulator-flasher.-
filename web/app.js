@@ -339,7 +339,7 @@ function demoLoopStop(nodeRef) {
   const n = nodeRef.n; nodeRef.n = null;
   try { n.g.gain.setTargetAtTime(0, audioCtx.currentTime, 0.12); setTimeout(() => { try { n.src.stop(); } catch (_) {} }, 300); } catch (_) {}
 }
-const demoTrackRef = { n: null }, demoReliefRef = { n: null };
+const demoTrackRef = { n: null };
 
 // Hydrostatic drive whine — a hydraulic pump track looped and pitched UP a bunch to sing like a
 // hydrostatic drive; the pitch rises with the swashplate. Level from the Levels tab.
@@ -425,8 +425,6 @@ function demoPumpStroke(amount) {
   const lvl = demoLvl("hydraulicPumpVolumePercentage", 100);
   try { w.g.gain.setTargetAtTime(demoMaster() * lvl * a, audioCtx.currentTime, 0.2); } catch (_) {}
 }
-function demoStartRelief() { demoLoop(demoReliefRef, "hydraulicFlowSound", demoLvl("hydraulicFlowVolumePercentage", 150) * demoMaster() * 1.4, 1.0); }
-function demoStopRelief() { demoLoopStop(demoReliefRef); }
 function demoThrottle(t) { // crossfade idle→rev, spool the turbo, pitch up — all scaled by the Levels tab
   if (!demo) return;
   demo.throttle = t;
@@ -442,7 +440,7 @@ function demoThrottle(t) { // crossfade idle→rev, spool the turbo, pitch up �
 }
 function demoBog(on) { if (demo) { demo.bog = on; demoThrottle(demo.throttle); } }
 function demoStop() {
-  demoStopPump(); demoStopTracks(); demoStopRelief();
+  demoStopPump(); demoStopTracks();
   if (demo) { try { demo.idleSrc.stop(); demo.revSrc.stop(); if (demo.turboSrc) demo.turboSrc.stop(); } catch (_) {} demo = null; }
 }
 // Automatic diesel wind-down: rpm/pitch sag to a stall and the volume tails off, then everything
@@ -451,7 +449,7 @@ function demoShutdown() {
   return new Promise((resolve) => {
     if (!demo || !audioCtx) { demoStop(); resolve(); return; }
     const now = audioCtx.currentTime, dn = 1.2; // wind-down time
-    demoStopPump(); demoStopRelief(); demoStopTracks();
+    demoStopPump(); demoStopTracks();
     [demo.idleSrc, demo.revSrc, demo.turboSrc].forEach((s) => {
       if (s) try { s.playbackRate.setValueAtTime(s.playbackRate.value, now); s.playbackRate.exponentialRampToValueAtTime(0.18, now + dn); } catch (_) {}
     });
@@ -499,11 +497,11 @@ async function demoAuto(onThrottle, onStage) {
     if (!alive()) return;
     // Push into the pile — swash stays stroked FULL (whine holds) but the tracks droop and slow.
     stage("💥 Digging in — she's bogging!");
-    demoStartRelief(); demoStartPump(); demoPumpStroke(1.0); demoBog(true); demoSwash(1.0); // pump maxed against the cut
+    demoStartPump(); demoPumpStroke(1.0); demoBog(true); demoSwash(1.0);          // pump maxed against the cut, engine bogs
     await trackTo(1.0, 0.3, 1300);                                                // tracks lug down; whine holds up
     await sleep(1300);
     if (!alive()) return;
-    stage("😮‍💨 Pulling out");          demoBog(false); demoStopRelief(); demoPumpStroke(0.6); demoSwash(1.0); // blade raising out of the cut
+    stage("😮‍💨 Pulling out");          demoBog(false); demoPumpStroke(0.6); demoSwash(1.0); // blade raising out of the cut
     await trackTo(0.3, 0.95, 1100);                                               // catches its breath, rolls on
     stage("🛑 Stop");                  demoSwash(0); demoStopPump(); await trackTo(0.95, 0.2, 500); demoStopTracks(); await sleep(700); // blade's up, pump off
     stage("🔻 Back to idle");          await glide(1.0, 0, 1500); if (onThrottle) onThrottle(0);
@@ -537,7 +535,7 @@ function renderForgePane() {
       <button id="demoAutoBtn" class="primary">🎬 Auto demo</button>
       <span id="demoStage" class="pane-sub" style="margin:0;font-style:normal"></span>
     </div>
-    <p class="pane-sub" style="margin:10px 0 0">Auto demo: cranks up → idles → throttles up → lowers the blade → drives forward → <b>digs in and bogs over the relief</b> → pulls out → back to idle → shuts off. Reacts to your Levels.</p>
+    <p class="pane-sub" style="margin:10px 0 0">Auto demo: cranks up → idles → throttles up → lowers the blade → drives forward → <b>digs in and bogs down</b> → pulls out → back to idle → shuts off. Reacts to your Levels.</p>
     <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
     <div class="row" style="gap:12px;flex-wrap:wrap">
       <button id="demoStartBtn">▶ Start engine</button>
@@ -943,7 +941,7 @@ function buildGamepadUI(root) {
     // (The old "Tank / dual-track mix" toggle was removed — the drive mode is set once on the
     //  Machine tab ("Dozer drive"); the firmware always mixes off that, so this was a dead duplicate.)
     card.appendChild(toggle("Engine-feel rumble", "rumble",
-      "Feel the engine through the controller — idle purr, load-follow, and a jolt when the relief cracks. Turn off to save controller battery. (PS4/PS5/Xbox.)"));
+      "Feel the engine through the controller — idle purr, load-follow, and a jolt when it bogs under load. Turn off to save controller battery. (PS4/PS5/Xbox.)"));
 
     // steering source
     const srow = el("div", "ctrl");
