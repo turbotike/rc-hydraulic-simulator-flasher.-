@@ -16,6 +16,7 @@
 #if defined GAMEPAD_MODE
 
 #include <Bluepad32.h>
+#include <Preferences.h>
 
 // The Controls tab writes these; included first so its #defines win over the defaults below.
 #if defined __has_include
@@ -142,12 +143,21 @@ extern uint16_t pulseWidthRaw[]; // channel array (declared in the .ino); CH_* i
 
 ControllerPtr gpController = nullptr;
 volatile bool gamepadConnected = false;
+static Preferences gpPrefs;      // remembers whether we've ever paired (namespace "chmap", key "btok")
+static bool gpBondSaved = false;
 
 static void gpOnConnect(ControllerPtr ctl)
 {
   gpController = ctl;
   gamepadConnected = true;
   Serial.printf("Gamepad connected: %s\n", ctl->getModelName().c_str());
+  // Mark that we now have a good bond so we DON'T wipe keys on future boots (keeps auto-reconnect).
+  if (!gpBondSaved) {
+    gpPrefs.begin("chmap", false);
+    gpPrefs.putBool("btok", true);
+    gpPrefs.end();
+    gpBondSaved = true;
+  }
 }
 static void gpOnDisconnect(ControllerPtr ctl)
 {
@@ -166,6 +176,18 @@ void setupGamepad()
   Serial.printf("%02x:%02x:%02x:%02x:%02x:%02x\n", a[0], a[1], a[2], a[3], a[4], a[5]);
   BP32.setup(&gpOnConnect, &gpOnDisconnect);
   BP32.enableVirtualDevice(false);
+  BP32.enableNewBluetoothConnections(true);   // accept a controller that's in pairing mode
+
+  // First boot after flashing (or any boot before a controller has ever paired): clear stale bonds
+  // so a fresh controller in pairing mode can bind. Once one connects, gpOnConnect sets "btok" and
+  // we stop wiping — so a paired controller auto-reconnects on later boots.
+  gpPrefs.begin("chmap", true);
+  bool haveBond = gpPrefs.getBool("btok", false);
+  gpPrefs.end();
+  if (!haveBond) {
+    BP32.forgetBluetoothKeys();
+    Serial.println("No prior pairing — cleared old Bluetooth bonds.");
+  }
   Serial.println("Put your controller in pairing mode to connect...");
 }
 
