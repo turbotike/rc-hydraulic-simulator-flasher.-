@@ -1219,10 +1219,12 @@ void hydrostaticModel() {
 #if MACHINE_TRACKED
   swashL = rampToward(swashL, cmdTrackL, swashAccelRate, swashDecelRate);
   swashR = rampToward(swashR, cmdTrackR, swashAccelRate, swashDecelRate);
-  // Tracks follow the stick directly (through the smooth swashplate accel/decel ramp above). No rpm
-  // gating — stick-proportional drive, not a full hydrostat flow sim (operator's call).
-  actualTrackL = swashL;
-  actualTrackR = swashR;
+  // Full hydrostat: track speed = pump flow = swashplate displacement (swash) × engine-rpm fraction.
+  // rpm is the flow RATE (set by throttle), swash is the displacement (drive stick). So idle rpm =
+  // crawl even at full stick, throttle up = faster, and load sag drops rpm → flow → tracks slow (bog).
+  int32_t rpmFrac = constrain((int32_t)currentRpm * 100 / max((int16_t)1, driveDroopRefRpm), 0, 100);
+  actualTrackL = swashL * rpmFrac / 100;
+  actualTrackR = swashR * rpmFrac / 100;
   driveFlowDemand = (int16_t)(((int32_t)abs(swashL) + abs(swashR)) * driveFlowWeight / 1000);
 #else
   // Wheeled: drive motor gets an accel/decel ramp; the steer servo passes straight through.
