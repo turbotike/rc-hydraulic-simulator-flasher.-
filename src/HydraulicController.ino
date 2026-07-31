@@ -1226,6 +1226,7 @@ void hydrostaticModel() {
   // rpm is the flow RATE (set by throttle), swash is the displacement (drive stick). So idle rpm =
   // crawl even at full stick, throttle up = faster, and load sag drops rpm → flow → tracks slow (bog).
   int32_t rpmFrac = constrain((int32_t)currentRpm * 100 / max((int16_t)1, driveDroopRefRpm), 0, 100);
+  if (rpmFrac < driveIdleCreepPercent) rpmFrac = driveIdleCreepPercent; // idle creep: still moves at idle throttle
   actualTrackL = swashL * rpmFrac / 100;
   actualTrackR = swashR * rpmFrac / 100;
   driveFlowDemand = (int16_t)(((int32_t)abs(swashL) + abs(swashR)) * driveFlowWeight / 1000);

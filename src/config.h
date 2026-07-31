@@ -66,6 +66,7 @@ int16_t swashDecelRate  = 25;   // destroke back toward neutral (faster than acc
 int16_t trackThrowScale = 100;  // % of servo throw the tracks use
 int16_t counterRotScale = 80;   // % throw allowed while counter-rotating (spin on the spot)
 int16_t driveDroopRefRpm = 450; // engine rpm for full track speed — throttle down = lower rpm = slower
+int16_t driveIdleCreepPercent = 28; // min track-speed % at idle throttle so it still creeps (0 = stall at idle)
 
 // --- Implement (proportional valve) model: [lift, tilt, angle, ripper] ---
 uint8_t implFlowWeight[4] = {40, 25, 25, 35};      // % pump load each function draws at full flow
@@ -86,7 +87,7 @@ boolean  autoIdleEnabled = true;  // true = idle down automatically when parked
 uint16_t autoIdleDelayMs = 3000;  // no-activity time before idling down (ms)
 
 // --- Drive-stick expo: softens the drive stick around centre for fine control. 0 = linear, 100 = full cubic ---
-int16_t driveExpo = 30;
+int16_t driveExpo = 55;
 
 // --- Dig load (blade machines): inferred cutting resistance = blade down + driving forward.
 //     Not physics — a heuristic that loads the engine so pushing a lowered blade bogs it. ---
@@ -337,7 +338,7 @@ volatile int fanStartPoint = 0;
 #include "sounds/GenericFan.h"
 
 // --- Horn ---
-volatile int hornVolumePercentage = 140;
+volatile int hornVolumePercentage = 225;
 #include "sounds/CarHorn.h"
 
 // --- Siren (set volume to 0 to disable) ---
@@ -359,7 +360,7 @@ volatile int sound1VolumePercentage = 100;
 #include "sounds/door.h"
 
 // --- Travel Alarm (Reversing beep) ---
-volatile int reversingVolumePercentage = 205;
+volatile int reversingVolumePercentage = 135;
 uint8_t reversingBeepMode = 1;  // 0 = off, 1 = reverse only, 2 = forward + reverse
 #include "sounds/TruckReversingBeep.h"
 
@@ -399,7 +400,7 @@ const unsigned int hydraulicFlowSampleRate = reliefSquealSampleRate;
 #include "sounds/reliefSqueal.h"
 
 // --- Track rattle ---
-volatile int trackRattleVolumePercentage = 300;
+volatile int trackRattleVolumePercentage = 270;
 int16_t trackRattleSpeedPercent = 60;   // rattle playback speed: 100 = native, lower = slower/deeper
 #include "sounds/D6TrackRattle.h"
 // Alias: auto-generated variable mapping

@@ -425,7 +425,7 @@ def write_config(cfg):
         "escBrakeSteps", "escAccelerationSteps",
         "hydraulicRampTime", "hydraulicDeadZone",
         "autoIdleDelayMs", "driveExpo", "hydrostaticWhineVolumePercentage",
-        "trackRattleSpeedPercent", "reversingBeepMode",
+        "trackRattleSpeedPercent", "reversingBeepMode", "driveIdleCreepPercent",
         "masterVolume", "indicatorOn",
         "hiLoRatioPercent",
         # Channel mapping
@@ -1258,6 +1258,9 @@ def spa_schema():
         sld("trackRattleSpeedPercent", "Track rattle speed", cfg.get("trackRattleSpeedPercent", 60),
             40, 150, 5, "%", "Top rattle speed at full track pace; it eases down to a slower crawl "
             "rattle like the demo. 100 = native pitch, lower = slower/deeper."),
+        sld("driveIdleCreepPercent", "Idle creep", cfg.get("driveIdleCreepPercent", 28),
+            0, 70, 2, "%", "How much the tracks still move at idle throttle. 0 = fully stalls at idle; "
+            "higher = it creeps without touching the throttle."),
     ]}
 
     # Levels tab: only the volumes that matter on construction equipment. The engine sound packs
