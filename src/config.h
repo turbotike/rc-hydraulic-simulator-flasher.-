@@ -52,7 +52,7 @@ uint8_t CH_DZ_RIPPER_TILT = 0; // Ripper tilt
 // --- Run the dozer on a game controller (PS4/PS5/Xbox) instead of an RC receiver ---
 // Needs the esp32-bluepad32 board core — the flasher selects it for a gamepad build. When on,
 // comment out the RC protocol below (one radio: Bluetooth OR the RC bus, not both).
-// #define GAMEPAD_MODE
+#define GAMEPAD_MODE
 
 // --- Dozer drive input: choose ONE at flash time ---
 #define DRIVE_SINGLE_STICK_MIX     // one stick: fwd/back + left/right, mixed to both tracks
@@ -69,8 +69,12 @@ int16_t driveDroopRefRpm = 450; // engine rpm for full track speed — throttle 
 
 // --- Implement (proportional valve) model: [lift, tilt, angle, ripper] ---
 int16_t cylStroke[4]      = {1000, 800, 800, 900}; // cylinder travel units (for end-stop detection)
-int16_t cylSpeed[4]       = {30, 40, 40, 30};      // position units per 20ms per full spool
+int16_t cylSpeed[4]       = {30, 40, 40, 30};      // position units per 20ms per full spool (derived from cylStrokeMs)
 uint8_t implFlowWeight[4] = {40, 25, 25, 35};      // % pump load each function draws at full flow
+// Full-stroke TIME (ms) per implement [lift, tilt, angle, ripper] — the ONLY per-build number the
+// end-stop model needs. Set on the machine via teach mode (hold horn 3s, run each function
+// stop-to-stop); saved to NVS. cylSpeed is derived from this so end-stop relief matches YOUR build.
+int32_t cylStrokeMs[4]    = {667, 400, 400, 600};
 
 // --- Relief valve / pump capacity ---
 int16_t driveFlowWeight   = 60;  // how hard the tracks load the pump/engine
@@ -224,7 +228,7 @@ boolean channelEnabled[17] = {
 // RC PROTOCOL — uncomment ONE
 // ============================================================================
 // #define SBUS_COMMUNICATION      // Futaba / FrSky SBUS (inverted UART on GPIO 36)
-#define IBUS_COMMUNICATION   // FlySky IBUS
+// #define IBUS_COMMUNICATION   // FlySky IBUS
 // #define SUMD_COMMUNICATION   // Graupner SUMD
 // #define PPM_COMMUNICATION    // PPM sum signal
 // #define PWM_COMMUNICATION    // Individual PWM per channel (max 6ch)
@@ -387,11 +391,11 @@ volatile int couplingVolumePercentage = 100;
 
 // --- Hydraulic pump ---
 volatile int hydraulicPumpVolumePercentage = 65;
-#include "sounds/Caterpillar323Hydraulic3.h"
+#include "sounds/Caterpillar323Hydraulic.h"
 
 // --- Hydrostatic drive whine ("sing") — the deep pump/motor whine that rises with the swashplate.
 //     Level lives here so the flasher Levels tab and demo can use it (demo synthesizes it today). ---
-volatile int hydrostaticWhineVolumePercentage = 120;
+volatile int hydrostaticWhineVolumePercentage = 160;
 
 // --- Hydraulic fluid flow ---
 volatile int hydraulicFlowVolumePercentage = 75;

@@ -210,6 +210,8 @@ volatile uint16_t hydraulicLoad = 0;
 volatile bool engineLugging = false; // dozer governor: engine bogged under heavy load
 int16_t totalFlowDemand = 0;         // dozer: drive + implement pump demand (read by the governor)
 volatile bool reliefActive = false;  // dozer: relief valve open — read by the audio ISR
+bool teachMode = false;              // cylinder end-stop teach mode active (drive frozen, relief muted)
+uint32_t teachAckUntil = 0;          // work-light fast-blink acknowledge window
 
 volatile uint8_t dacOffset = 0;
 
@@ -1181,6 +1183,7 @@ static int16_t rampToward(int16_t cur, int16_t target, int16_t accel, int16_t de
 
 // Read the sticks → commanded drive effort (±500). Tracked = left/right track; wheeled = drive/steer.
 void driveMixer() {
+  if (teachMode) { cmdTrackL = 0; cmdTrackR = 0; return; } // drive frozen while calibrating cylinders
 #if MACHINE_TRACKED
   #if defined DOZER_MODE && defined DRIVE_SINGLE_STICK_MIX
   // Dozer single-stick mix: one stick fwd/back + left/right, blended into both tracks. Expo on both
@@ -1267,6 +1270,11 @@ void implementControl() {
 // ── Relief valve: a function at its end-stop, or total demand beyond the (engine-limited)
 //    pump capacity, "relieves" — the engine strains, the flow sound spikes, RPM lugs. ──
 void reliefLogic() {
+  if (teachMode) { // no squeal/strain while running functions to their stops during calibration
+    reliefActive = false; systemRelief = false; hydraulicFlowVolume = 0;
+    for (int i = 0; i < 4; i++) { functionRelief[i] = false; cylAtEndstop[i] = false; }
+    return;
+  }
   // Dig load (blade machines): if the blade is lowered AND you're driving forward, infer you're
   // cutting and add engine load proportional to depth × forward push. Heuristic, not physics — it
   // just makes "drop the blade and push" bog the machine the way it should.
@@ -1885,7 +1893,14 @@ void loadChannelsFromNVS() {
       channelEnabled[i] = nvsPrefs.getBool(key, true);
     }
   }
+  // Load per-build cylinder stroke times (teach mode), then derive cylSpeed from them.
+  for (int i = 0; i < 4; i++) {
+    char key[4];
+    snprintf(key, sizeof(key), "y%d", i);
+    if (nvsPrefs.isKey(key)) cylStrokeMs[i] = nvsPrefs.getInt(key, cylStrokeMs[i]);
+  }
   nvsPrefs.end();
+  applyCylCal();
 }
 
 void saveChannelsToNVS() {
@@ -2226,6 +2241,67 @@ void setup() {
 // MAIN LOOP (Core 1) — RC input + hydraulic control + servos
 // ════════════════════════════════════════════════════════════════
 
+// ════════════════════════════════════════════════════════════════
+// CYLINDER END-STOP TEACH MODE
+// Open-loop needs ONE number per function: full-stroke time on THIS build. Hold the horn ~3s to
+// enter/exit. In teach mode drive is frozen and the relief is muted; run each implement stick fully
+// from one stop to the other — the time it's held saturated (until you release at the far stop)
+// becomes that function's stroke time. cylSpeed is derived from it, saved to NVS on exit.
+// ════════════════════════════════════════════════════════════════
+void applyCylCal() {
+  for (int i = 0; i < 4; i++)
+    if (cylStrokeMs[i] > 0)
+      cylSpeed[i] = (int16_t)constrain((int32_t)cylStroke[i] * 20 / cylStrokeMs[i], (int32_t)1, (int32_t)500);
+}
+void saveCylCal() {
+  nvsPrefs.begin("chmap", false);
+  for (int i = 0; i < 4; i++) { char k[4]; snprintf(k, sizeof(k), "y%d", i); nvsPrefs.putInt(k, cylStrokeMs[i]); }
+  nvsPrefs.end();
+  applyCylCal();
+}
+void updateTeachMode() {
+  static uint32_t hornSince = 0; static bool armLatch = false;
+  static bool run[4] = {false, false, false, false}; static uint32_t t0[4] = {0, 0, 0, 0};
+
+  // Enter/exit: hold the horn for ~3s (works on RC and gamepad — Circle drives CH_HORN).
+  bool hornHeld = (CH_HORN > 0 && pulseWidth[CH_HORN] > 1800);
+  if (hornHeld) {
+    if (hornSince == 0) hornSince = millis();
+    if (!armLatch && millis() - hornSince > 3000) {
+      armLatch = true;
+      teachMode = !teachMode;
+      teachAckUntil = millis() + (teachMode ? 800 : 1600);
+      for (int i = 0; i < 4; i++) run[i] = false;
+      if (!teachMode) saveCylCal();                 // exiting → persist to NVS
+    }
+  } else { hornSince = 0; armLatch = false; }
+
+  if (!teachMode) return;
+
+  // Time each function's saturated hold: rising into full deflection starts the clock; releasing
+  // (back toward centre) at the far stop records the elapsed full-stroke time.
+  const uint8_t *chans = outImpl;
+  for (int i = 0; i < 4; i++) {
+    if (chans[i] == 0) continue;
+    int16_t mag = abs((int16_t)pulseWidth[chans[i]] - 1500);
+    if (!run[i] && mag > 450) { run[i] = true; t0[i] = millis(); }
+    else if (run[i] && mag < 200) {
+      uint32_t el = millis() - t0[i]; run[i] = false;
+      if (el >= 300 && el <= 30000) { cylStrokeMs[i] = (int32_t)el; teachAckUntil = millis() + 700; } // ack blip
+    }
+  }
+}
+// Work-light feedback: steady 2Hz blink = in teach mode; a fast blip = value just captured/saved.
+void teachLightFeedback() {
+  if (!teachMode && millis() >= teachAckUntil) return;   // not teaching and no ack pending
+  uint32_t t = millis();
+  uint32_t period = (t < teachAckUntil) ? 120 : 400;
+  bool on = ((t / period) % 2) == 0;
+  digitalWrite(FRONT_WORKLIGHT_PIN, on ? HIGH : LOW);
+  digitalWrite(REAR_WORKLIGHT_PIN,  on ? HIGH : LOW);
+  digitalWrite(SIDE_LIGHT_PIN,      on ? HIGH : LOW);
+}
+
 void loop() {
   rtc_wdt_feed();
 
@@ -2247,6 +2323,10 @@ void loop() {
 
   // Throttle & sound triggers
   mapThrottle();
+
+  // Cylinder end-stop calibration (horn long-hold). Freezes drive + mutes relief while active.
+  updateTeachMode();
+  teachLightFeedback();
 
   // Drive + implements — shared by every machine (generic 6-output path).
   driveMixer();        // sticks → commanded drive effort (tank mix or drive/steer)
