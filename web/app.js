@@ -294,8 +294,8 @@ async function demoStart(fadeInMs) {
   const bus = demoAudioBus();
   const idleF = slotFile("idleSound"), revF = slotFile("revSound"), startF = slotFile("startSound"), turboF = slotFile("turboSound");
   if (!idleF) { toast("No idle sound set.", "err"); return; }
-  let crankDur = 0;
-  if (startF) { try { const b = await loadSoundBuffer(startF); crankDur = b.duration; const s = audioCtx.createBufferSource(); s.buffer = b; const sg = audioCtx.createGain(); sg.gain.value = demoLvl("startVolumePercentage", 140) * demoMaster() * 1.4; s.connect(sg); sg.connect(bus); s.start(); } catch (_) {} }
+  let crankDur = 0, crankStartAt = audioCtx.currentTime;
+  if (startF) { try { const b = await loadSoundBuffer(startF); crankDur = b.duration; const s = audioCtx.createBufferSource(); s.buffer = b; const sg = audioCtx.createGain(); sg.gain.value = demoLvl("startVolumePercentage", 140) * demoMaster() * 1.4; s.connect(sg); sg.connect(bus); crankStartAt = audioCtx.currentTime; s.start(); } catch (_) {} }
   const idleBuf = await loadSoundBuffer(idleF);
   const revBuf = revF ? await loadSoundBuffer(revF).catch(() => idleBuf) : idleBuf;
   const idleSrc = audioCtx.createBufferSource(); idleSrc.buffer = idleBuf; idleSrc.loop = true;
@@ -311,19 +311,20 @@ async function demoStart(fadeInMs) {
     const turboGain = audioCtx.createGain(); turboGain.gain.value = 0; turboGain.connect(bus); turboSrc.connect(turboGain);
     turboSrc.start(); demo.turboSrc = turboSrc; demo.turboGain = turboGain;
   } catch (_) {} }
-  if (fadeInMs) { // let the crank play through, then fade the idle loop in behind its tail
+  if (fadeInMs) { // let the crank play fully through, then fade the idle loop in behind its tail
     idleGain.gain.value = 0; revGain.gain.value = 0;
-    const startAt = audioCtx.currentTime + Math.max(0, crankDur - 0.5);
-    idleGain.gain.setTargetAtTime(demoLvl("idleVolumePercentage", 100) * demoMaster(), startAt, 0.35);
+    const startAt = crankStartAt + Math.max(0.2, crankDur - 0.25);
+    idleGain.gain.setTargetAtTime(demoLvl("idleVolumePercentage", 100) * demoMaster(), startAt, 0.4);
   } else { demoThrottle(0); }
 }
 // A looping effect (track rattle / pump / relief) with a smooth fade in/out.
-function demoLoop(nodeRef, slot, vol) {
+function demoLoop(nodeRef, slot, vol, rate) {
   if (nodeRef.n || !audioCtx) return;
   const f = slotFile(slot); if (!f) return;
   loadSoundBuffer(f).then((b) => {
     if (nodeRef.n) return;
     const src = audioCtx.createBufferSource(); src.buffer = b; src.loop = true;
+    if (rate) src.playbackRate.value = rate;
     const g = audioCtx.createGain(); g.gain.value = 0; g.connect(demoAudioBus()); src.connect(g);
     src.start(); nodeRef.n = { src, g };
     g.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.18);
@@ -335,11 +336,19 @@ function demoLoopStop(nodeRef) {
   try { n.g.gain.setTargetAtTime(0, audioCtx.currentTime, 0.12); setTimeout(() => { try { n.src.stop(); } catch (_) {} }, 300); } catch (_) {}
 }
 const demoTrackRef = { n: null }, demoPumpRef = { n: null }, demoReliefRef = { n: null };
-function demoStartTracks() { demoLoop(demoTrackRef, "trackRattleSound", demoLvl("trackRattleVolumePercentage", 100) * demoMaster()); }
+function demoStartTracks() { demoLoop(demoTrackRef, "trackRattleSound", demoLvl("trackRattleVolumePercentage", 100) * demoMaster(), 0.6); }
 function demoStopTracks() { demoLoopStop(demoTrackRef); }
+// Speed the track rattle up/down with machine movement (0 = stopped, 1 = full pace).
+function demoTrackRate(speed) {
+  if (!demoTrackRef.n) return;
+  const r = 0.55 + Math.max(0, Math.min(1, speed)) * 0.85; // ~0.55 crawling → ~1.4 full pace
+  const g = demoLvl("trackRattleVolumePercentage", 100) * demoMaster() * (0.5 + 0.5 * Math.max(0, Math.min(1, speed)));
+  try { demoTrackRef.n.src.playbackRate.setTargetAtTime(r, audioCtx.currentTime, 0.2); } catch (_) {}
+  try { demoTrackRef.n.g.gain.setTargetAtTime(g, audioCtx.currentTime, 0.2); } catch (_) {}
+}
 function demoStartPump(boost) { demoLoop(demoPumpRef, "hydraulicPumpSound", demoLvl("hydraulicPumpVolumePercentage", 100) * demoMaster() * (boost || 1)); }
 function demoStopPump() { demoLoopStop(demoPumpRef); }
-function demoStartRelief() { demoLoop(demoReliefRef, "hydraulicFlowSound", demoLvl("hydraulicFlowVolumePercentage", 150) * demoMaster() * 1.4); }
+function demoStartRelief() { demoLoop(demoReliefRef, "hydraulicFlowSound", demoLvl("hydraulicFlowVolumePercentage", 150) * demoMaster() * 1.4, 0.62); }
 function demoStopRelief() { demoLoopStop(demoReliefRef); }
 function demoThrottle(t) { // crossfade idle→rev, spool the turbo, pitch up — all scaled by the Levels tab
   if (!demo) return;
@@ -384,6 +393,11 @@ async function demoAuto(onThrottle, onStage) {
       await sleep(60);
     }
   };
+  // ramp the track-rattle pace (0..1) over ms; re-applies so it catches once the loop loads
+  const trackTo = async (from, to, ms) => {
+    const steps = Math.max(1, Math.round(ms / 80));
+    for (let i = 1; i <= steps && alive(); i++) { demoTrackRate(from + (to - from) * i / steps); await sleep(80); }
+  };
   try {
     stage("🔑 Starting up…");          await demoStart(1500); if (!demo) return; // crank crossfades into idle
     await sleep(4500);                                                            // hold idle a good while
@@ -393,15 +407,18 @@ async function demoAuto(onThrottle, onStage) {
     if (!alive()) return;
     stage("🔧 Lowering the blade");    demoStartPump(); await sleep(1500);        // hydraulics engage
     if (!alive()) return;
-    stage("🚜 Driving forward");       demoStartTracks(); await glide(0.85, 1.0, 700); await sleep(1000);
+    stage("🚜 Driving forward");       demoStartTracks(); await glide(0.85, 1.0, 700);
+    await trackTo(0.3, 1.0, 900);                                                 // tracks pick up to full pace
     if (!alive()) return;
-    // Push into the pile — engine bogs, relief cracks and squeals, pump roars.
+    // Push into the pile — engine bogs, tracks slow under load, relief cracks and squeals.
     stage("💥 Digging in — she's bogging!");
     demoStartRelief(); demoStartPump(1.6); demoBog(true);
-    await sleep(2600);
+    await trackTo(1.0, 0.3, 1300);                                                // tracks lug down as it strains
+    await sleep(1300);
     if (!alive()) return;
-    stage("😮‍💨 Pulling out");          demoBog(false); demoStopRelief(); demoStartPump(1.0); await sleep(1100);
-    stage("🛑 Stop");                  demoStopTracks(); await sleep(700);
+    stage("😮‍💨 Pulling out");          demoBog(false); demoStopRelief(); demoStartPump(1.0);
+    await trackTo(0.3, 0.95, 1100);                                               // catches its breath, rolls on
+    stage("🛑 Stop");                  await trackTo(0.95, 0.2, 500); demoStopTracks(); await sleep(700);
     stage("🔻 Back to idle");          demoStopPump(); await glide(1.0, 0, 1500); if (onThrottle) onThrottle(0);
     await sleep(1400);
     stage("🔌 Engine off");            demoStop();
