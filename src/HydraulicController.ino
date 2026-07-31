@@ -2169,23 +2169,23 @@ void setup() {
   rmt_isr_register(rmt_isr_handler, NULL, 0, NULL);
 #endif
 
-  // Wait for RC signal
+#if !defined GAMEPAD_MODE
+  // Wait for the RC signal to auto-zero. (Skipped on gamepad builds — there's no RC bus to wait for,
+  // and blocking here just starves the Bluetooth stack right when you're trying to pair.)
   Serial.println("Waiting for RC signal...");
   uint32_t rcTimeout = millis();
   while (!autoZeroDone && millis() - rcTimeout < 5000) {
-#if defined GAMEPAD_MODE
-    readGamepadCommands();
-#else
     readSbusCommands();
     readIbusCommands();
     readSumdCommands();
     readPpmCommands();
     readPwmSignals();
-#endif
     processRawChannels();
+    rtc_wdt_feed();
     delay(20);
   }
   Serial.println(autoZeroDone ? "RC calibrated!" : "RC timeout — using defaults");
+#endif
 
   // Audio timers
   variableTimer = timerBegin(0, 20, true);

@@ -339,10 +339,13 @@ void readGamepadCommands()
 #endif
 
   // --- Digital functions -> the toggle/level channels the firmware reads (held = 2000, released = 1000). ---
-  if (CH_HORN > 0)          pulseWidthRaw[CH_HORN]          = (btn & GP_BTN_HORN)   ? 2000 : 1000;
-  if (CH_ENGINE_TOGGLE > 0) pulseWidthRaw[CH_ENGINE_TOGGLE] = (btn & GP_BTN_ENGINE) ? 2000 : 1000;
-  if (CH_HILO_TOGGLE > 0)   pulseWidthRaw[CH_HILO_TOGGLE]   = (btn & GP_BTN_HILO)   ? 2000 : 1000;
-  if (CH_LIGHTS > 0)        pulseWidthRaw[CH_LIGHTS]        = (btn & GP_BTN_LIGHTS) ? 2000 : 1000;
+  // Buttons rest at 1500 (centre), not 1000 — a button off-centre at rest looked like constant
+  // "activity" to the auto-idle-down check and stopped it from ever idling. Pressed = 2000 = ON
+  // (all the button logic triggers at >1700/1800, so centre still reads as off).
+  if (CH_HORN > 0)          pulseWidthRaw[CH_HORN]          = (btn & GP_BTN_HORN)   ? 2000 : 1500;
+  if (CH_ENGINE_TOGGLE > 0) pulseWidthRaw[CH_ENGINE_TOGGLE] = (btn & GP_BTN_ENGINE) ? 2000 : 1500;
+  if (CH_HILO_TOGGLE > 0)   pulseWidthRaw[CH_HILO_TOGGLE]   = (btn & GP_BTN_HILO)   ? 2000 : 1500;
+  if (CH_LIGHTS > 0)        pulseWidthRaw[CH_LIGHTS]        = (btn & GP_BTN_LIGHTS) ? 2000 : 1500;
 }
 
 #endif // GAMEPAD_MODE
