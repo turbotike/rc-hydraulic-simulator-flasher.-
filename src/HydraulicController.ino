@@ -907,40 +907,28 @@ void mapThrottle() {
   currentThrottle = constrain(currentThrottle, 0, 500);
 #endif
 
-  // ── Auto idle-down: if throttle is up but nothing is moving, idle down after 4s ──
-  {
+  // ── Auto idle-down: drop to base idle when no function has been touched for a while,
+  //    and snap straight back to commanded rpm the instant any function moves. ──
+  if (autoIdleEnabled) {
     static unsigned long lastActivity = 0;
-    static boolean idledDown = false;
     static int16_t prevThrottle = 0;
 
-    // Detect any control activity (tracks, blade, ripper, or throttle change)
+    // Any enabled channel (except the throttle itself) off centre = a function is being worked.
     boolean activity = false;
-#if defined DOZER_MODE
-    activity = abs((int)pulseWidth[CH_DZ_TRACK_L] - 1500) > 80
-            || abs((int)pulseWidth[CH_DZ_TRACK_R] - 1500) > 80
-            || abs((int)pulseWidth[CH_DZ_BLADE] - 1500) > 80
-            || abs((int)pulseWidth[CH_DZ_RIPPER] - 1500) > 80;
-#elif defined EXCAVATOR_MODE
-    activity = abs((int)pulseWidth[CH_EX_TRACK_L] - 1500) > 80
-            || abs((int)pulseWidth[CH_EX_TRACK_R] - 1500) > 80
-            || abs((int)pulseWidth[CH_EX_BOOM] - 1500) > 80
-            || abs((int)pulseWidth[CH_EX_STICK] - 1500) > 80
-            || abs((int)pulseWidth[CH_EX_BUCKET] - 1500) > 80;
-#endif
-
-    // Throttle stick movement also counts as activity (cycling throttle snaps out of idle-down)
+    for (uint8_t ch = 1; ch < PULSE_ARRAY_SIZE; ch++) {
+      if (ch == CH_THROTTLE || !channelEnabled[ch]) continue;
+      if (abs((int)pulseWidth[ch] - 1500) > 80) { activity = true; break; }
+    }
+    // Moving the throttle stick itself also snaps out of idle-down.
     if (abs(currentThrottle - prevThrottle) > 30) activity = true;
     prevThrottle = currentThrottle;
 
-    if (activity) {
-      lastActivity = millis();
-      idledDown = false;
-    }
+    if (activity) lastActivity = millis();
 
-    // After 4s of no activity, drop to 25% of commanded throttle
-    if (currentThrottle > 0 && !activity && millis() - lastActivity > 4000) {
-      currentThrottle = currentThrottle / 4;
-      idledDown = true;
+    // Parked and untouched past the delay → pull rpm down to base idle (throttle 0);
+    // the throttle smoother below eases it down, and back up the moment activity returns.
+    if (currentThrottle > 0 && !activity && millis() - lastActivity > autoIdleDelayMs) {
+      currentThrottle = 0;
     }
   }
 

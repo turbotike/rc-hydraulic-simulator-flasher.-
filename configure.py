@@ -195,6 +195,10 @@ def read_config():
     if re.search(r'^#define\s+DRIVE_SINGLE_STICK_MIX\b', text, re.MULTILINE):
         cfg["driveMode"] = "DRIVE_SINGLE_STICK_MIX"
 
+    # Auto idle-down switch
+    m = re.search(r'boolean\s+autoIdleEnabled\s*=\s*(true|false)', text)
+    cfg["autoIdleEnabled"] = m.group(1) if m else "true"
+
     # SBUS settings
     m = re.search(r'boolean\s+sbusInverted\s*=\s*(true|false)', text)
     cfg["sbusInverted"] = m.group(1) if m else "true"
@@ -420,6 +424,7 @@ def write_config(cfg):
         "escRampTimeLow", "escRampTimeHigh",
         "escBrakeSteps", "escAccelerationSteps",
         "hydraulicRampTime", "hydraulicDeadZone",
+        "autoIdleDelayMs",
         "masterVolume", "indicatorOn",
         "hiLoRatioPercent",
         # Channel mapping
@@ -444,7 +449,7 @@ def write_config(cfg):
     # Boolean consts
     bool_vars = ["automatic", "doubleClutch", "shiftingAutoThrottle", "INDICATOR_DIR",
                  "hiLoEnabled", "hiLoDefaultHigh", "autoEngineStart",
-                 "travelAlarmBothDirections"]
+                 "travelAlarmBothDirections", "autoIdleEnabled"]
     for var in bool_vars:
         if var in cfg:
             # Normalize: accept bool, string, or int → always "true"/"false"
@@ -1241,6 +1246,12 @@ def spa_schema():
             [("DRIVE_SINGLE_STICK_MIX", "Single joystick (mixed to both tracks)"),
              ("DRIVE_DUAL_STICK", "Dual stick (one per track)")],
             "How the tracks are driven."),
+        sel("autoIdleEnabled", "Auto idle-down", cfg.get("autoIdleEnabled"),
+            [("true", "On — settle to idle when parked"), ("false", "Off — hold throttle")],
+            "Eases the engine down to low idle after a few seconds with nothing touched, and snaps "
+            "back to your set rpm the instant you move a stick or function."),
+        sld("autoIdleDelayMs", "Idle-down delay", cfg.get("autoIdleDelayMs", 3000),
+            500, 10000, 250, " ms", "How long with no input before it idles down."),
     ]}
 
     # Levels tab: only the volumes that matter on construction equipment. The engine sound packs

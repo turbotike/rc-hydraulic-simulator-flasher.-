@@ -85,6 +85,10 @@ int16_t maxSagRpm       = 220; // max rpm droop at full pump demand
 int16_t lugRpmThreshold = 150; // below this rpm under load → lugging (heavy strain)
 int16_t lugKnockBoost   = 40;  // extra engine strain when lugging
 
+// --- Auto idle-down: drop to low idle when nothing's been touched, snap back on any input ---
+boolean  autoIdleEnabled = true;  // true = idle down automatically when parked
+uint16_t autoIdleDelayMs = 3000;  // no-activity time before idling down (ms)
+
 // --- Dig load (blade machines): inferred cutting resistance = blade down + driving forward.
 //     Not physics — a heuristic that loads the engine so pushing a lowered blade bogs it. ---
 int16_t digLoadGain     = 40;  // 0 = off. Low-moderate. Higher = the cut fights back harder.
@@ -312,7 +316,7 @@ volatile int dieselKnockAdaptiveVolumePercentage = 50;
 #include "sounds/Caterpillar323Knock.h"
 
 // --- Turbo ---
-volatile int turboVolumePercentage = 300;
+volatile int turboVolumePercentage = 20;
 volatile int turboIdleVolumePercentage = 30;
 #include "sounds/TurboWhistle.h"
 
@@ -383,7 +387,7 @@ volatile int hydraulicPumpVolumePercentage = 65;
 #include "sounds/Caterpillar323Hydraulic2.h"
 
 // --- Hydraulic fluid flow ---
-volatile int hydraulicFlowVolumePercentage = 150;
+volatile int hydraulicFlowVolumePercentage = 35;
 #include "sounds/reliefSqueal.h"
 // Alias: auto-generated variable mapping
 const signed char* hydraulicFlowSamples = reliefSquealSamples;

@@ -335,17 +335,34 @@ function demoLoopStop(nodeRef) {
   const n = nodeRef.n; nodeRef.n = null;
   try { n.g.gain.setTargetAtTime(0, audioCtx.currentTime, 0.12); setTimeout(() => { try { n.src.stop(); } catch (_) {} }, 300); } catch (_) {}
 }
-const demoTrackRef = { n: null }, demoPumpRef = { n: null }, demoReliefRef = { n: null };
-function demoStartTracks() { demoLoop(demoTrackRef, "trackRattleSound", demoLvl("trackRattleVolumePercentage", 100) * demoMaster(), 0.4); }
-function demoStopTracks() { demoLoopStop(demoTrackRef); }
-// Speed the track rattle up/down with machine movement (0 = stopped, 1 = full pace).
-function demoTrackRate(speed) {
-  if (!demoTrackRef.n) return;
-  const r = 0.38 + Math.max(0, Math.min(1, speed)) * 0.4; // ~0.38 crawling → ~0.78 full pace
-  const g = demoLvl("trackRattleVolumePercentage", 100) * demoMaster() * (0.5 + 0.5 * Math.max(0, Math.min(1, speed)));
-  try { demoTrackRef.n.src.playbackRate.setTargetAtTime(r, audioCtx.currentTime, 0.2); } catch (_) {}
-  try { demoTrackRef.n.g.gain.setTargetAtTime(g, audioCtx.currentTime, 0.2); } catch (_) {}
+const demoPumpRef = { n: null }, demoReliefRef = { n: null };
+// Track rattle = re-triggered clanks at NATIVE pitch. Faster machine = shorter gap between
+// clanks (busier rattle), not a higher pitch — same idea as the firmware's rattle interval.
+const demoTrack = { on: false, speed: 0, buf: null, timer: null };
+function demoStartTracks() {
+  if (demoTrack.on || !audioCtx) return;
+  const f = slotFile("trackRattleSound"); if (!f) return;
+  demoTrack.on = true; demoTrack.speed = 0.15;
+  loadSoundBuffer(f).then((b) => { demoTrack.buf = b; if (demoTrack.on) demoTrackTick(); })
+                    .catch(() => { demoTrack.on = false; });
 }
+function demoTrackTick() {
+  const st = demoTrack; if (!st.on || !st.buf) return;
+  const sp = Math.max(0, Math.min(1, st.speed));
+  const src = audioCtx.createBufferSource(); src.buffer = st.buf; // native pitch — no rate change
+  const g = audioCtx.createGain();
+  const v = demoLvl("trackRattleVolumePercentage", 100) * demoMaster() * (0.4 + 0.6 * sp);
+  const hit = 0.2; // one short clank per trigger
+  g.gain.setValueAtTime(v, audioCtx.currentTime);
+  g.gain.setTargetAtTime(0, audioCtx.currentTime + hit * 0.4, 0.06);
+  src.connect(g); g.connect(demoAudioBus());
+  src.start(); try { src.stop(audioCtx.currentTime + hit + 0.1); } catch (_) {}
+  const gap = 90 + (1 - sp) * 430; // ~90ms flat-out → ~520ms crawling
+  st.timer = setTimeout(demoTrackTick, gap);
+}
+function demoStopTracks() { demoTrack.on = false; if (demoTrack.timer) { clearTimeout(demoTrack.timer); demoTrack.timer = null; } }
+// Set how fast the tracks are moving (0 = crawling, 1 = full pace) — changes rattle rate, not pitch.
+function demoTrackRate(speed) { demoTrack.speed = Math.max(0, Math.min(1, speed)); }
 function demoStartPump(boost) { demoLoop(demoPumpRef, "hydraulicPumpSound", demoLvl("hydraulicPumpVolumePercentage", 100) * demoMaster() * (boost || 1)); }
 function demoStopPump() { demoLoopStop(demoPumpRef); }
 function demoStartRelief() { demoLoop(demoReliefRef, "hydraulicFlowSound", demoLvl("hydraulicFlowVolumePercentage", 150) * demoMaster() * 1.4, 0.62); }
