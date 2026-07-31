@@ -342,8 +342,9 @@ function demoLoopStop(nodeRef) {
 const demoTrackRef = { n: null }, demoPumpRef = { n: null }, demoReliefRef = { n: null };
 
 // Hydrostatic drive whine — a synthesized transmission whine (pump/motor "sing") that rises in
-// pitch and swells with track speed. This is the drive sound; the pump loop is a separate thing.
+// pitch and swells with the swashplate. This is the drive sound; the pump loop is a separate thing.
 const demoWhine = { o1: null, o2: null, filt: null, g: null };
+let demoWhineVol = 1.0; // user slider (0..3), demo-only
 function demoStartWhine() {
   if (demoWhine.g || !audioCtx) return;
   const o1 = audioCtx.createOscillator(); o1.type = "sawtooth";
@@ -364,15 +365,19 @@ function demoStopWhine() {
 // Whine rides the SWASHPLATE (pump displacement / drive command), NOT the track speed — so under
 // load, when the tracks droop and slow, the whine holds up because the pump is still stroked hard.
 function demoSwash(amount) {
-  const w = demoWhine; if (!w.g) return;
   const a = Math.max(0, Math.min(1, amount));
+  demoSwashLast = a;
+  const w = demoWhine; if (!w.g) return;
   const now = audioCtx.currentTime;
   const base = 240 + a * 560; // ~240Hz low stroke → ~800Hz full stroke
   try { w.o1.frequency.setTargetAtTime(base, now, 0.18); } catch (_) {}
   try { w.o2.frequency.setTargetAtTime(base * 2, now, 0.18); } catch (_) {}
   try { w.filt.frequency.setTargetAtTime(600 + a * 1700, now, 0.18); } catch (_) {}
-  try { w.g.gain.setTargetAtTime(demoMaster() * (0.03 + 0.15 * a), now, 0.2); } catch (_) {}
+  try { w.g.gain.setTargetAtTime(demoMaster() * (0.05 + 0.32 * a) * demoWhineVol, now, 0.2); } catch (_) {}
 }
+// Re-apply the whine gain immediately when the slider moves (so you hear it change live).
+let demoSwashLast = 0;
+function demoSetWhineVol(mult) { demoWhineVol = Math.max(0, mult); if (demoWhine.g) demoSwash(demoSwashLast); }
 
 function demoStartTracks() { demoStartWhine(); demoLoop(demoTrackRef, "trackRattleSound", demoLvl("trackRattleVolumePercentage", 100) * demoMaster(), 0.4); }
 function demoStopTracks() { demoStopWhine(); demoLoopStop(demoTrackRef); }
@@ -508,7 +513,13 @@ function renderForgePane() {
       <strong style="min-width:90px">Throttle</strong>
       <input type="range" id="demoThr" min="0" max="100" step="1" value="0" disabled>
       <span class="val" id="demoThrVal">idle</span>
-    </div>`;
+    </div>
+    <div class="row" style="margin-top:10px">
+      <strong style="min-width:90px">Drive whine</strong>
+      <input type="range" id="demoWhineVol" min="0" max="300" step="5" value="100">
+      <span class="val" id="demoWhineVolVal">100%</span>
+    </div>
+    <p class="pane-sub" style="margin:4px 0 0">The hydrostatic drive "sing" — rises with the swashplate as it drives. Demo preview only.</p>`;
   pane.appendChild(demoCard);
 
   // Sound choosers
@@ -719,6 +730,11 @@ function wireForgePane() {
     thr.disabled = true;
     demoAuto(setThr, (s) => { if (stageEl) stageEl.textContent = s; });
   };
+  const wv = $("demoWhineVol"), wvVal = $("demoWhineVolVal");
+  if (wv) {
+    demoSetWhineVol(wv.value / 100);
+    wv.oninput = () => { wvVal.textContent = wv.value + "%"; demoSetWhineVol(wv.value / 100); };
+  }
 }
 
 function renderFlashPane() {
