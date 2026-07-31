@@ -1252,7 +1252,7 @@ void implementControl() {
   int32_t demand = 0;
   for (int i = 0; i < 4; i++) {
     int16_t raw = 0;
-    if (chans[i] > 0 && engineRunning) {
+    if (chans[i] > 0 && (engineRunning || teachMode)) { // teach mode moves implements with engine off
       raw = (int16_t)pulseWidth[chans[i]] - 1500;
       if (abs(raw) < hydraulicDeadZone) raw = 0;                        // deadzone
       else raw = (raw > 0) ? raw - hydraulicDeadZone : raw + hydraulicDeadZone;
@@ -2264,15 +2264,19 @@ void updateTeachMode() {
   static bool run[4] = {false, false, false, false}; static uint32_t t0[4] = {0, 0, 0, 0};
 
   // Enter/exit: hold the horn for ~3s (works on RC and gamepad — Circle drives CH_HORN).
+  // Only ENTER when the engine is off (a deliberate setup gesture, not something you hit while
+  // operating). Exit is always allowed.
   bool hornHeld = (CH_HORN > 0 && pulseWidth[CH_HORN] > 1800);
   if (hornHeld) {
     if (hornSince == 0) hornSince = millis();
     if (!armLatch && millis() - hornSince > 3000) {
       armLatch = true;
-      teachMode = !teachMode;
-      teachAckUntil = millis() + (teachMode ? 800 : 1600);
-      for (int i = 0; i < 4; i++) run[i] = false;
-      if (!teachMode) saveCylCal();                 // exiting → persist to NVS
+      if (teachMode) {                              // exit → persist to NVS
+        teachMode = false; saveCylCal(); teachAckUntil = millis() + 1600;
+      } else if (!engineRunning) {                  // enter only with the engine off
+        teachMode = true; teachAckUntil = millis() + 800;
+        for (int i = 0; i < 4; i++) run[i] = false;
+      }
     }
   } else { hornSince = 0; armLatch = false; }
 
