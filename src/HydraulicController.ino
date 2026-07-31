@@ -473,13 +473,12 @@ void IRAM_ATTR fixedPlaybackTimer() {
   static uint32_t curDieselKnockSample = 0;
   static uint32_t curCouplingSample = 0;
   static uint32_t curUncouplingSample = 0;
-  static uint32_t curHydraulicFlowSample = 0;
   static uint32_t curTrackRattleSample = 0;
   static uint32_t curTrackRattle2Sample = 0;
   static uint32_t curBucketRattleSample = 0;
   static int32_t a, a1, a2 = 0;
   static int32_t b, b0, b1, b2, b3, b4, b5, b6, b7, b8, b9 = 0;
-  static int32_t c, c1, c2, c3, c4 = 0;
+  static int32_t c, c2, c3, c4 = 0;
   static int32_t d, d1, d2 = 0;
   static boolean knockSilent = 0;
   static boolean knockMedium = 0;
@@ -526,8 +525,8 @@ void IRAM_ATTR fixedPlaybackTimer() {
     curSound1Sample = 0;
   }
 
-  // Travel alarm (reversing beep — or both directions)
-  boolean alarmActive = engineRunning && (escInReverse || (travelAlarmBothDirections && escIsDriving));
+  // Reversing beep — only when backing up, and only if the beeper switch is on.
+  boolean alarmActive = reversingBeepEnabled && engineRunning && escInReverse;
   if (alarmActive) {
     if (curReversingSample < reversingSampleCount - 1) {
       b1 = (reversingSamples[curReversingSample] * reversingVolumePercentage / 100);
@@ -613,20 +612,23 @@ void IRAM_ATTR fixedPlaybackTimer() {
 
   // ── Hydraulic sounds (Group C) ────────────────────────────
 
-  // Hydraulic fluid flow
-  if (engineRunning && curHydraulicFlowSample < hydraulicFlowSampleCount - 1) {
-    c1 = (hydraulicFlowSamples[curHydraulicFlowSample] * hydraulicFlowVolumePercentage / 100 * hydraulicFlowVolume / 100);
-    curHydraulicFlowSample++;
-  } else {
-    curHydraulicFlowSample = 0;
-  }
+  // (Hydraulic-flow / relief voice removed — no squeal/static when working the blade.)
 
   // Track rattle (continuous)
-  if (tracksAreRotating && curTrackRattleSample < trackRattleSampleCount - 1) {
+  if (tracksAreRotating) {
+    if (curTrackRattleSample >= trackRattleSampleCount) curTrackRattleSample = 0;
     c2 = (trackRattleSamples[curTrackRattleSample] * trackRattleVolumePercentage / 100 * trackRattleVolume / 100);
-    curTrackRattleSample++;
+    // Playback rate scales with track speed, like the demo: ~38% at a crawl → the ceiling (slider)
+    // at full pace. trackRattleVolume (0..100) is the speed proxy.
+    int32_t lo = 38, hi = (trackRattleSpeedPercent > lo) ? trackRattleSpeedPercent : lo;
+    int32_t spd = constrain((int32_t)trackRattleVolume, (int32_t)0, (int32_t)100);
+    uint32_t rate = (uint32_t)(lo + spd * (hi - lo) / 100);
+    static uint32_t trackRattleAcc = 0;
+    trackRattleAcc += rate;                              // fractional-rate resample (100 = native)
+    while (trackRattleAcc >= 100) { trackRattleAcc -= 100; curTrackRattleSample++; }
+    if (curTrackRattleSample >= trackRattleSampleCount) curTrackRattleSample = 0;
   } else {
-    curTrackRattleSample = 0;
+    curTrackRattleSample = 0; c2 = 0;
   }
 
 #ifdef TRACK_RATTLE_2
@@ -658,7 +660,7 @@ void IRAM_ATTR fixedPlaybackTimer() {
   // Mix & output to DAC2
   a = a1 + a2;
   b = b0 * 5 + b1 + b2 / 2 + b3 + b4 + b5 + b6 + b7 + b8 + b9;
-  c = c1 + c2 + c3 + c4;
+  c = c2 + c3 + c4;
   d = d1 + d2;
 
   // Engine fully OFF → mute the aux DAC too, so frozen/looping voices don't buzz at idle.
@@ -1603,28 +1605,12 @@ void dozerControl() {
   escInReverse = trackLreverse && trackRreverse;
   escIsDriving = tracksAreRotating;
 
-  // ── Blade / tilt / ripper → hydraulic pump volume ──
-  uint16_t bladeVol = 0;
-  if (pulseWidth[CH_DZ_BLADE] < pulseMinNeutral[CH_DZ_BLADE])
-    bladeVol = map(pulseWidth[CH_DZ_BLADE], pulseMinNeutral[CH_DZ_BLADE], pulseMin[CH_DZ_BLADE], 0, 60);
-  else if (pulseWidth[CH_DZ_BLADE] > pulseMaxNeutral[CH_DZ_BLADE])
-    bladeVol = map(pulseWidth[CH_DZ_BLADE], pulseMaxNeutral[CH_DZ_BLADE], pulseMax[CH_DZ_BLADE], 0, 40);
-
-  uint16_t tiltVol = 0;
-  if (CH_DZ_TILT > 0) {
-    if (pulseWidth[CH_DZ_TILT] < pulseMinNeutral[CH_DZ_TILT])
-      tiltVol = map(pulseWidth[CH_DZ_TILT], pulseMinNeutral[CH_DZ_TILT], pulseMin[CH_DZ_TILT], 0, 30);
-    else if (pulseWidth[CH_DZ_TILT] > pulseMaxNeutral[CH_DZ_TILT])
-      tiltVol = map(pulseWidth[CH_DZ_TILT], pulseMaxNeutral[CH_DZ_TILT], pulseMax[CH_DZ_TILT], 0, 30);
-  }
-
-  uint16_t ripperVol = 0;
-  if (pulseWidth[CH_DZ_RIPPER] < pulseMinNeutral[CH_DZ_RIPPER])
-    ripperVol = map(pulseWidth[CH_DZ_RIPPER], pulseMinNeutral[CH_DZ_RIPPER], pulseMin[CH_DZ_RIPPER], 0, 40);
-  else if (pulseWidth[CH_DZ_RIPPER] > pulseMaxNeutral[CH_DZ_RIPPER])
-    ripperVol = map(pulseWidth[CH_DZ_RIPPER], pulseMaxNeutral[CH_DZ_RIPPER], pulseMax[CH_DZ_RIPPER], 0, 30);
-
-  hydraulicPumpVolume = constrain(bladeVol + tiltVol + ripperVol, 0, 100);
+  // ── Implement pump volume from the actual valve commands (all 4: lift/tilt/angle/ripper) ──
+  // Driven off valveCmd, so it's the same in RC and gamepad — blade tilt and angle make the pump
+  // sound just like the blade lift does (each function drives the pump up to ~60).
+  uint16_t implVol = 0;
+  for (int i = 0; i < 4; i++) implVol += (uint16_t)(abs(valveCmd[i]) * 60 / 500);
+  hydraulicPumpVolume = constrain(implVol, 0, 100);
   hydraulicDependentKnockVolume = map(hydraulicPumpVolume, 0, 100, 50, 100);
   hydraulicLoad = map(hydraulicPumpVolume, 0, 100, 0, 40);
 

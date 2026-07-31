@@ -425,6 +425,7 @@ def write_config(cfg):
         "escBrakeSteps", "escAccelerationSteps",
         "hydraulicRampTime", "hydraulicDeadZone",
         "autoIdleDelayMs", "driveExpo", "hydrostaticWhineVolumePercentage",
+        "trackRattleSpeedPercent",
         "masterVolume", "indicatorOn",
         "hiLoRatioPercent",
         # Channel mapping
@@ -449,7 +450,7 @@ def write_config(cfg):
     # Boolean consts
     bool_vars = ["automatic", "doubleClutch", "shiftingAutoThrottle", "INDICATOR_DIR",
                  "hiLoEnabled", "hiLoDefaultHigh", "autoEngineStart",
-                 "travelAlarmBothDirections", "autoIdleEnabled"]
+                 "reversingBeepEnabled", "autoIdleEnabled"]
     for var in bool_vars:
         if var in cfg:
             # Normalize: accept bool, string, or int → always "true"/"false"
@@ -1251,6 +1252,12 @@ def spa_schema():
         sld("driveExpo", "Drive stick expo", cfg.get("driveExpo", 30),
             0, 100, 5, "%", "Softens the drive stick around centre so small moves are gentle for "
             "fine control; full throw still reaches max. 0 = linear."),
+        sel("reversingBeepEnabled", "Reversing beeper", cfg.get("reversingBeepEnabled"),
+            [("true", "On — beeps when backing up"), ("false", "Off")],
+            "The backup beeper. Plays only when the machine is reversing."),
+        sld("trackRattleSpeedPercent", "Track rattle speed", cfg.get("trackRattleSpeedPercent", 60),
+            40, 150, 5, "%", "Top rattle speed at full track pace; it eases down to a slower crawl "
+            "rattle like the demo. 100 = native pitch, lower = slower/deeper."),
     ]}
 
     # Levels tab: only the volumes that matter on construction equipment. The engine sound packs
@@ -2544,8 +2551,7 @@ function panelSounds() {
     <div class="section-title">Travel Alarm (Reversing Beep)</div>
     <div class="field"><label>Sound File</label>${soundSelect('reversingSound', s.reversingSound)}</div>
     ${numField('Alarm Volume %', 'reversingVolumePercentage', 0, 300, 5)}
-    <div class="check-group">${checkbox('Alarm in both directions (fwd + rev)', 'travelAlarmBothDirections')}</div>
-    <p class="hint">When enabled, the travel alarm beeps whenever the machine is moving in any direction. When disabled, it only beeps in reverse.</p>
+    <p class="hint">The reversing beeper plays only when the machine is backing up. Turn it on/off on the Machine tab.</p>
   </div>`;
 }
 

@@ -360,7 +360,7 @@ volatile int sound1VolumePercentage = 100;
 
 // --- Travel Alarm (Reversing beep) ---
 volatile int reversingVolumePercentage = 205;
-const boolean travelAlarmBothDirections = true; // true = beep in fwd + rev
+boolean reversingBeepEnabled = true;  // reversing beeper on/off — plays ONLY when backing up
 #include "sounds/TruckReversingBeep.h"
 
 // --- Indicator tick ---
@@ -400,6 +400,7 @@ const unsigned int hydraulicFlowSampleRate = reliefSquealSampleRate;
 
 // --- Track rattle ---
 volatile int trackRattleVolumePercentage = 300;
+int16_t trackRattleSpeedPercent = 60;   // rattle playback speed: 100 = native, lower = slower/deeper
 #include "sounds/D6TrackRattle.h"
 // Alias: auto-generated variable mapping
 const signed char* trackRattleSamples = trackRattle2Samples;
@@ -482,7 +483,7 @@ const uint16_t hydraulicDeadZone = 50;   // µs dead zone around center
 // ============================================================================
 // MASTER VOLUME
 // ============================================================================
-volatile int masterVolume = 260;  // 0-200%
+volatile int masterVolume = 100;  // 0-200%
 
 // ============================================================================
 // DEBUG
