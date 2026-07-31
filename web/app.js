@@ -341,20 +341,21 @@ function demoLoopStop(nodeRef) {
 }
 const demoTrackRef = { n: null }, demoPumpRef = { n: null }, demoReliefRef = { n: null };
 
-// Hydrostatic drive whine — the original procedural squeal sample (hydroWhine.h) looped and pitched
-// by the swashplate: deep at low stroke, climbs to a whine at full stroke. Level from the Levels tab.
+// Hydrostatic drive whine — a hydraulic pump track looped and pitched UP a bunch to sing like a
+// hydrostatic drive; the pitch rises with the swashplate. Level from the Levels tab.
+const DEMO_WHINE_FILE = "Caterpillar323Hydraulic2.h";
 const demoWhine = { src: null, filt: null, g: null };
 let demoSwashLast = 0;
 function demoStartWhine() {
   if (demoWhine.g || !audioCtx) return;
-  const filt = audioCtx.createBiquadFilter(); filt.type = "lowpass"; filt.frequency.value = 1400; filt.Q.value = 3;
+  const filt = audioCtx.createBiquadFilter(); filt.type = "lowpass"; filt.frequency.value = 3000; filt.Q.value = 1.5;
   const g = audioCtx.createGain(); g.gain.value = 0;
   filt.connect(g); g.connect(demoAudioBus());
   demoWhine.filt = filt; demoWhine.g = g;
-  loadSoundBuffer("hydroWhine.h").then((b) => {
+  loadSoundBuffer(DEMO_WHINE_FILE).then((b) => {
     if (!demoWhine.g) return; // stopped before it loaded
     const src = audioCtx.createBufferSource(); src.buffer = b; src.loop = true;
-    src.playbackRate.value = 0.3; src.connect(filt); src.start();
+    src.playbackRate.value = 1.8; src.connect(filt); src.start();
     demoWhine.src = src; demoSwash(demoSwashLast || 0.15);
   }).catch(() => {});
 }
@@ -373,10 +374,10 @@ function demoSwash(amount) {
   const w = demoWhine; if (!w.g) return;
   const now = audioCtx.currentTime;
   const lvl = demoLvl("hydrostaticWhineVolumePercentage", 120);
-  const rate = 0.28 + a * 0.5;                                 // deep at low stroke → whine at full stroke
-  // Slow glide (~0.5s) = the flywheel/pump winding up, like a radial engine inertia starter.
+  const rate = 1.7 + a * 1.5;                                  // pitched up a bunch; climbs with swash (~1.7→3.2x)
+  // Slow glide (~0.5s) = the pump/flywheel winding up, like a radial engine inertia starter.
   if (w.src) { try { w.src.playbackRate.setTargetAtTime(rate, now, 0.5); } catch (_) {} }
-  try { w.filt.frequency.setTargetAtTime(700 + a * 1800, now, 0.5); } catch (_) {}
+  try { w.filt.frequency.setTargetAtTime(2000 + a * 3500, now, 0.5); } catch (_) {}
   try { w.g.gain.setTargetAtTime(demoMaster() * (0.06 + 0.34 * a) * lvl, now, 0.25); } catch (_) {}
 }
 
