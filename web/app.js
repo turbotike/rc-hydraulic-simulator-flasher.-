@@ -294,7 +294,8 @@ async function demoStart(fadeInMs) {
   const bus = demoAudioBus();
   const idleF = slotFile("idleSound"), revF = slotFile("revSound"), startF = slotFile("startSound"), turboF = slotFile("turboSound");
   if (!idleF) { toast("No idle sound set.", "err"); return; }
-  if (startF) { try { const b = await loadSoundBuffer(startF); const s = audioCtx.createBufferSource(); s.buffer = b; const sg = audioCtx.createGain(); sg.gain.value = demoLvl("startVolumePercentage", 140) * demoMaster() * 1.4; s.connect(sg); sg.connect(bus); s.start(); } catch (_) {} }
+  let crankDur = 0;
+  if (startF) { try { const b = await loadSoundBuffer(startF); crankDur = b.duration; const s = audioCtx.createBufferSource(); s.buffer = b; const sg = audioCtx.createGain(); sg.gain.value = demoLvl("startVolumePercentage", 140) * demoMaster() * 1.4; s.connect(sg); sg.connect(bus); s.start(); } catch (_) {} }
   const idleBuf = await loadSoundBuffer(idleF);
   const revBuf = revF ? await loadSoundBuffer(revF).catch(() => idleBuf) : idleBuf;
   const idleSrc = audioCtx.createBufferSource(); idleSrc.buffer = idleBuf; idleSrc.loop = true;
@@ -310,8 +311,11 @@ async function demoStart(fadeInMs) {
     const turboGain = audioCtx.createGain(); turboGain.gain.value = 0; turboGain.connect(bus); turboSrc.connect(turboGain);
     turboSrc.start(); demo.turboSrc = turboSrc; demo.turboGain = turboGain;
   } catch (_) {} }
-  if (fadeInMs) { idleGain.gain.value = 0; revGain.gain.value = 0; idleGain.gain.setTargetAtTime(demoLvl("idleVolumePercentage", 100) * demoMaster(), audioCtx.currentTime, fadeInMs / 3000); }
-  else { demoThrottle(0); }
+  if (fadeInMs) { // let the crank play through, then fade the idle loop in behind its tail
+    idleGain.gain.value = 0; revGain.gain.value = 0;
+    const startAt = audioCtx.currentTime + Math.max(0, crankDur - 0.5);
+    idleGain.gain.setTargetAtTime(demoLvl("idleVolumePercentage", 100) * demoMaster(), startAt, 0.35);
+  } else { demoThrottle(0); }
 }
 // A looping effect (track rattle / pump / relief) with a smooth fade in/out.
 function demoLoop(nodeRef, slot, vol) {
@@ -344,10 +348,11 @@ function demoThrottle(t) { // crossfade idle→rev, spool the turbo, pitch up �
   demo.idleGain.gain.setTargetAtTime(demoLvl("idleVolumePercentage", 100) * m * Math.max(0, 1 - t * 0.85), now, 0.08);
   demo.revGain.gain.setTargetAtTime(demoLvl("revVolumePercentage", 110) * m * t, now, 0.08);
   if (demo.turboGain) demo.turboGain.gain.setTargetAtTime(demoLvl("turboVolumePercentage", 90) * m * Math.pow(t, 1.4), now, 0.12);
-  const rate = (demo.bog ? 0.62 : 0.85) + t * 0.55; // bog = rpm sags
-  demo.idleSrc.playbackRate.setTargetAtTime(rate, now, demo.bog ? 0.04 : 0.1);
-  demo.revSrc.playbackRate.setTargetAtTime(rate, now, demo.bog ? 0.04 : 0.1);
-  if (demo.turboSrc) demo.turboSrc.playbackRate.setTargetAtTime(0.9 + t * 0.5, now, 0.12);
+  // Native pitch at idle (matches the preview); revs up with throttle; sags when bogged.
+  const rate = (demo.bog ? 0.8 : 1.0) + t * 0.4;
+  demo.idleSrc.playbackRate.setTargetAtTime(rate, now, demo.bog ? 0.05 : 0.1);
+  demo.revSrc.playbackRate.setTargetAtTime(rate, now, demo.bog ? 0.05 : 0.1);
+  if (demo.turboSrc) demo.turboSrc.playbackRate.setTargetAtTime(1.0 + t * 0.4, now, 0.12);
 }
 function demoBog(on) { if (demo) { demo.bog = on; demoThrottle(demo.throttle); } }
 function demoOneShot(slot, key, d) {
@@ -648,7 +653,7 @@ function wireForgePane() {
   demoStop(); // stop any prior demo when this pane re-renders
   const thr = $("demoThr"), thrVal = $("demoThrVal"), stageEl = $("demoStage");
   const setThr = (t) => { const p = Math.round(t * 100); thr.value = p; thrVal.textContent = p === 0 ? "idle" : p + "%"; };
-  $("demoStartBtn").onclick = async () => { await demoStart(); if (demo) { thr.disabled = false; toast("Engine running — work the throttle.", "ok"); } };
+  $("demoStartBtn").onclick = async () => { await demoStart(1200); if (demo) { thr.disabled = false; setThr(0); toast("Engine running — work the throttle.", "ok"); } };
   $("demoStopBtn").onclick = () => { demoStop(); thr.disabled = true; setThr(0); };
   thr.oninput = () => { const t = thr.value / 100; demoThrottle(t); thrVal.textContent = thr.value == 0 ? "idle" : thr.value + "%"; };
   $("demoAutoBtn").onclick = () => {
