@@ -396,18 +396,16 @@ function demoTrackRate(speed) {
 // basically the same as the hydrostatic one, so the whine comes from the PUMP STROKE (implement flow
 // demand), pitching and swelling with how hard it strokes. Silent at zero stroke → quiet while just
 // traveling (no implement flow), loud when a function is moving.
-const demoPump = { src: null, filt: null, g: null, stroke: 0 };
+const demoPump = { src: null, g: null, stroke: 0 };
 function demoStartPump() {
   if (demoPump.g || !audioCtx) return;
   const f = slotFile("hydraulicPumpSound"); if (!f) return;
-  const filt = audioCtx.createBiquadFilter(); filt.type = "lowpass"; filt.frequency.value = 2200; filt.Q.value = 1;
-  const g = audioCtx.createGain(); g.gain.value = 0;
-  filt.connect(g); g.connect(demoAudioBus());
-  demoPump.filt = filt; demoPump.g = g;
+  const g = audioCtx.createGain(); g.gain.value = 0; g.connect(demoAudioBus());
+  demoPump.g = g;
   loadSoundBuffer(f).then((b) => {
     if (!demoPump.g) return; // stopped before it loaded
     const src = audioCtx.createBufferSource(); src.buffer = b; src.loop = true;
-    src.playbackRate.value = 1.0; src.connect(filt); src.start();
+    src.connect(g); src.start(); // NATIVE pitch — the hydraulic sound itself is untouched
     demoPump.src = src; demoPumpStroke(demoPump.stroke);
   }).catch(() => {});
 }
@@ -416,19 +414,16 @@ function demoStopPump() {
   const src = w.src; w.stroke = 0;
   try { w.g.gain.setTargetAtTime(0, audioCtx.currentTime, 0.15); } catch (_) {}
   setTimeout(() => { try { if (src) src.stop(); } catch (_) {} }, 400);
-  w.src = w.filt = w.g = null;
+  w.src = w.g = null;
 }
-// Pump stroke 0..1 = implement flow demand: pitches and swells the whine, like swash does the HST.
+// Pump stroke 0..1 = implement flow demand: only the VOLUME swells with the stroke (silent at zero).
+// The hydraulic sound itself is left at native pitch — not changed.
 function demoPumpStroke(amount) {
   const a = Math.max(0, Math.min(1, amount));
   demoPump.stroke = a;
   const w = demoPump; if (!w.g) return;
-  const now = audioCtx.currentTime;
   const lvl = demoLvl("hydraulicPumpVolumePercentage", 100);
-  const rate = 1.0 + a * 1.2;                                  // strokes up in pitch with flow
-  if (w.src) { try { w.src.playbackRate.setTargetAtTime(rate, now, 0.3); } catch (_) {} }
-  try { w.filt.frequency.setTargetAtTime(1200 + a * 2600, now, 0.3); } catch (_) {}
-  try { w.g.gain.setTargetAtTime(demoMaster() * lvl * a, now, 0.2); } catch (_) {} // silent at zero stroke
+  try { w.g.gain.setTargetAtTime(demoMaster() * lvl * a, audioCtx.currentTime, 0.2); } catch (_) {}
 }
 function demoStartRelief() { demoLoop(demoReliefRef, "hydraulicFlowSound", demoLvl("hydraulicFlowVolumePercentage", 150) * demoMaster() * 1.4, 1.0); }
 function demoStopRelief() { demoLoopStop(demoReliefRef); }
