@@ -689,9 +689,17 @@ void IRAM_ATTR fixedPlaybackTimer() {
   d = d1 + d2;
 
   // Engine fully OFF → mute the aux DAC too, so frozen/looping voices don't buzz at idle.
-  uint8_t value = (engineState == OFF)
-    ? dacOffset
-    : constrain(((a * 8 / 10) + (b * 2 / 10) + c + d) * masterVolume / 100 + dacOffset, 0, 255);
+  uint8_t value;
+  if (engineState == OFF) {
+    value = dacOffset;
+  } else {
+    int32_t v = ((a * 8 / 10) + (b * 2 / 10) + c + d) * masterVolume / 100;
+    // Soft knee: compress peaks past ±108 to 1/4 instead of hard-clipping (kills the harsh rattle
+    // distortion when the rattle + whine stack up at full speed).
+    if (v > 108) v = 108 + (v - 108) / 4;
+    else if (v < -108) v = -108 + (v + 108) / 4;
+    value = (uint8_t)constrain(v + dacOffset, 0, 255);
+  }
   SET_PERI_REG_BITS(RTC_IO_PAD_DAC2_REG, RTC_IO_PDAC2_DAC, value, RTC_IO_PDAC2_DAC_S);
 }
 

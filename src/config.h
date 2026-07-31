@@ -387,7 +387,7 @@ volatile int hydraulicPumpVolumePercentage = 65;
 #include "sounds/Caterpillar323Hydraulic.h"
 
 // --- Hydrostatic drive whine ("sing") — the cdc recording, pitched by track speed on the machine. ---
-volatile int hydrostaticWhineVolumePercentage = 160;
+volatile int hydrostaticWhineVolumePercentage = 100;  // shares DAC2 headroom with the rattle — keep modest
 #include "sounds/cdcWhine.h"
 
 // --- Hydraulic fluid flow ---
@@ -400,8 +400,8 @@ const unsigned int hydraulicFlowSampleRate = reliefSquealSampleRate;
 #include "sounds/reliefSqueal.h"
 
 // --- Track rattle ---
-volatile int trackRattleVolumePercentage = 270;
-int16_t trackRattleSpeedPercent = 60;   // rattle playback speed: 100 = native, lower = slower/deeper
+volatile int trackRattleVolumePercentage = 110;  // >~130 clips the DAC (harsh distortion) with the whine
+int16_t trackRattleSpeedPercent = 120;  // top rattle speed at full pace (100 = native; higher = faster clatter)
 #include "sounds/D6TrackRattle.h"
 // Alias: auto-generated variable mapping
 const signed char* trackRattleSamples = trackRattle2Samples;
