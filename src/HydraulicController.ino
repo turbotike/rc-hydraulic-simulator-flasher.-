@@ -1217,7 +1217,10 @@ void hydrostaticModel() {
 #if MACHINE_TRACKED
   swashL = rampToward(swashL, cmdTrackL, swashAccelRate, swashDecelRate);
   swashR = rampToward(swashR, cmdTrackR, swashAccelRate, swashDecelRate);
-  int32_t droop = constrain((int32_t)currentRpm * 100 / max((int16_t)1, driveDroopRefRpm), 0, 100);
+  // Track speed follows rpm on a SQUARED curve: only a crawl at idle/low rpm, and you have to bring
+  // the throttle up to build real speed (stalls as rpm → 0).
+  int32_t rr = constrain((int32_t)currentRpm * 100 / max((int16_t)1, driveDroopRefRpm), 0, 100);
+  int32_t droop = rr * rr / 100;
   actualTrackL = swashL * droop / 100; // tracks slow as the engine bogs, recover as rpm returns
   actualTrackR = swashR * droop / 100;
   driveFlowDemand = (int16_t)(((int32_t)abs(swashL) + abs(swashR)) * driveFlowWeight / 1000);
@@ -1316,15 +1319,17 @@ void updateGamepadRumble() {
   if (engineState == STARTING) { weak = 90; strong = 140; } // cranking shudder
   else if (engineRunning) {
     int load = constrain(totalFlowDemand, (int16_t)0, (int16_t)100); // 0..100 pump demand
-    // Lopey diesel idle throb: a slow ~2.8Hz lope on the light motor so it RUMBLES at idle, fading
-    // out as load rises (where the load buzz takes over).
-    uint32_t ph = millis() % 360;
-    int tri = (ph < 180) ? (int)ph : (int)(360 - ph);   // 0..180..0 triangle
-    int amp = 18 * (100 - load) / 100;                  // ±18 at idle, → 0 under load
-    int throb = (tri - 90) * amp / 90;                  // -amp..+amp
-    int wv = 24 + (load * 30 / 100) + throb;            // idle rumble base + load buzz + throb
-    weak = (uint8_t)constrain(wv, 0, 255);
-    strong = (uint8_t)(load * 200 / 100);              // load -> up to ~200
+    if (load < 12) {
+      // Idle lope: a rhythmic thump (~2.4Hz). The peaks must clear the DS4 motor's spin threshold
+      // (a low steady value just won't turn the motor), so pulse it — that's what you FEEL at idle.
+      uint32_t ph = millis() % 420;
+      bool beat = (ph < 160);
+      weak   = beat ? 115 : 28;
+      strong = beat ? 65  : 0;
+    } else {
+      weak   = 40 + (uint8_t)(load * 40 / 100);        // buzz builds with load
+      strong = (uint8_t)(load * 200 / 100);            // load -> up to ~200
+    }
     if (strain) { weak = 60; strong = 255; }           // sustained strain = full bump
   }
   gpController->playDualRumble(0, 160, weak, strong); // duration > refresh -> continuous
