@@ -1219,12 +1219,10 @@ void hydrostaticModel() {
 #if MACHINE_TRACKED
   swashL = rampToward(swashL, cmdTrackL, swashAccelRate, swashDecelRate);
   swashR = rampToward(swashR, cmdTrackR, swashAccelRate, swashDecelRate);
-  // Pump flow model: track speed = swashplate displacement (swash) × engine rpm fraction. rpm is the
-  // flow RATE, swash is the displacement — so at idle rpm even full stick is a crawl, and it speeds up
-  // as you throttle up. Under load rpm sags → flow drops → tracks slow (the bog).
-  int32_t rpmFrac = constrain((int32_t)currentRpm * 100 / max((int16_t)1, driveDroopRefRpm), 0, 100);
-  actualTrackL = swashL * rpmFrac / 100;
-  actualTrackR = swashR * rpmFrac / 100;
+  // Tracks follow the stick directly (through the smooth swashplate accel/decel ramp above). No rpm
+  // gating — stick-proportional drive, not a full hydrostat flow sim (operator's call).
+  actualTrackL = swashL;
+  actualTrackR = swashR;
   driveFlowDemand = (int16_t)(((int32_t)abs(swashL) + abs(swashR)) * driveFlowWeight / 1000);
 #else
   // Wheeled: drive motor gets an accel/decel ramp; the steer servo passes straight through.
@@ -2261,18 +2259,6 @@ void loop() {
   updateGamepadRumble(); // engine-feel haptics (only if GP_RUMBLE)
 #endif
 
-  // TEMP drive-chain readout (open Serial Monitor @115200): shows throttle, rpm, the droop %, the
-  // raw drive command (swR) and the droop-applied track output (actR). If actR tracks droop, the
-  // tracks ARE rpm-gated in firmware and the flatness is downstream (ESC/motor).
-  {
-    static uint32_t dbgMs = 0;
-    if (millis() - dbgMs > 400) {
-      dbgMs = millis();
-      int dr = constrain((int)currentRpm * 100 / max((int16_t)1, driveDroopRefRpm), 0, 100);
-      Serial.printf("THR=%d  RPM=%d  droop=%d%%  swR=%d  actR=%d\n",
-                    (int)currentThrottle, (int)currentRpm, dr, (int)swashR, (int)actualTrackR);
-    }
-  }
 
 #ifdef DEBUG_RC
   static unsigned long lastDebug = millis();
