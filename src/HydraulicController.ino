@@ -18,7 +18,6 @@
 
 #include <Arduino.h>
 #include <Preferences.h>
-#include <driver/dac.h>   // to power the DAC channels down when the engine is off (kills idle hiss)
 #include "config.h"
 #include "soundpack.h"
 #include "gamepad.h"
@@ -2251,18 +2250,6 @@ void loop() {
 #endif
 
   loadModel();         // total pump demand → governor bog (must run after the sound set above)
-
-  // Power the DAC channels down while the engine is fully OFF so the amp isn't fed a live (noisy)
-  // mid-level — kills the idle hiss. Re-enable the instant it leaves OFF (starting).
-  {
-    static bool dacOn = true;
-    bool want = (engineState != OFF);
-    if (want != dacOn) {
-      if (want) { dac_output_enable(DAC_CHANNEL_1); dac_output_enable(DAC_CHANNEL_2); }
-      else      { dac_output_disable(DAC_CHANNEL_1); dac_output_disable(DAC_CHANNEL_2); }
-      dacOn = want;
-    }
-  }
 
   // Servo output
   mcpwmOutput();
