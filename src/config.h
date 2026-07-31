@@ -312,7 +312,7 @@ volatile int dieselKnockAdaptiveVolumePercentage = 50;
 #include "sounds/Caterpillar323Knock.h"
 
 // --- Turbo ---
-volatile int turboVolumePercentage = 90;
+volatile int turboVolumePercentage = 300;
 volatile int turboIdleVolumePercentage = 30;
 #include "sounds/TurboWhistle.h"
 
@@ -379,17 +379,25 @@ volatile int couplingVolumePercentage = 100;
 // ============================================================================
 
 // --- Hydraulic pump ---
-volatile int hydraulicPumpVolumePercentage = 120;
+volatile int hydraulicPumpVolumePercentage = 65;
 #include "sounds/Caterpillar323Hydraulic2.h"
 
 // --- Hydraulic fluid flow ---
-volatile int hydraulicFlowVolumePercentage = 0;
-#include "sounds/Caterpillar323HydraulicFlow.h"
+volatile int hydraulicFlowVolumePercentage = 150;
+#include "sounds/reliefSqueal.h"
+// Alias: auto-generated variable mapping
+const signed char* hydraulicFlowSamples = reliefSquealSamples;
+const unsigned int hydraulicFlowSampleCount = reliefSquealSampleCount;
+const unsigned int hydraulicFlowSampleRate = reliefSquealSampleRate;
 #include "sounds/reliefSqueal.h"
 
 // --- Track rattle ---
-volatile int trackRattleVolumePercentage = 175;
-#include "sounds/Caterpillar323TrackRattle.h"
+volatile int trackRattleVolumePercentage = 300;
+#include "sounds/D6TrackRattle_100ms.h"
+// Alias: auto-generated variable mapping
+const signed char* trackRattleSamples = trackRattle2Samples;
+const unsigned int trackRattleSampleCount = trackRattle2SampleCount;
+const unsigned int trackRattleSampleRate = trackRattle2SampleRate;
 
 // --- Track rattle 2 (periodic clank, for tracked machines) ---
 #define TRACK_RATTLE_2
@@ -410,11 +418,6 @@ volatile int bucketRattleVolumePercentage = 160;
 const signed char* parkingBrakeSamples = samples;
 const unsigned int parkingBrakeSampleCount = sampleCount;
 const unsigned int parkingBrakeSampleRate = sampleRate;
-
-// Auto-injected for trackRattle2Sound (was missing) — using idle sound
-const signed char* trackRattle2Samples = samples;
-const unsigned int trackRattle2SampleCount = sampleCount;
-const unsigned int trackRattle2SampleRate = sampleRate;
 
 // ============================================================================
 // RC SIGNAL TUNING

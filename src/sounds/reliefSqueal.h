@@ -1,4 +1,5 @@
 // Procedural hydraulic relief-valve squeal (generated). Swap via the Sound Lab for a real sample.
+#pragma once
 const unsigned int reliefSquealSampleRate = 22050;
 const unsigned int reliefSquealSampleCount = 4410;
 const signed char reliefSquealSamples[] = {

@@ -272,38 +272,55 @@ function slotFile(slot) { // the currently-selected sound file for a slot
   const g = (state.schema.soundChoices || []).find((x) => x.key === slot);
   return g ? g.selected : null;
 }
-let demo = null; // { idleSrc, revSrc, idleGain, revGain }
+// Levels-aware mixing through a compressor bus (so it reacts to the Levels tab without clipping).
+let demo = null, demoBus = null;
+function demoAudioBus() {
+  if (!audioCtx) return null;
+  if (!demoBus) {
+    const comp = audioCtx.createDynamicsCompressor();
+    comp.threshold.value = -14; comp.knee.value = 14; comp.ratio.value = 6; comp.attack.value = 0.005; comp.release.value = 0.2;
+    const g = audioCtx.createGain(); g.gain.value = 0.95;
+    g.connect(comp); comp.connect(audioCtx.destination); demoBus = g;
+  }
+  return demoBus;
+}
+function demoMaster() { const L = state.schema.levels || {}; return Math.min(2.5, (L.masterVolume || 100) / 100) * 0.3; }
+function demoLvl(key, d) { const L = state.schema.levels || {}; const v = L[key] != null ? L[key] : d; return Math.max(0, v / 100); }
+
 async function demoStart(fadeInMs) {
   audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
   try { await audioCtx.resume(); } catch (_) {}
   demoStop();
-  const idleF = slotFile("idleSound"), revF = slotFile("revSound"), startF = slotFile("startSound");
+  const bus = demoAudioBus();
+  const idleF = slotFile("idleSound"), revF = slotFile("revSound"), startF = slotFile("startSound"), turboF = slotFile("turboSound");
   if (!idleF) { toast("No idle sound set.", "err"); return; }
-  if (startF) { try { const b = await loadSoundBuffer(startF); const s = audioCtx.createBufferSource(); s.buffer = b; s.connect(audioCtx.destination); s.start(); } catch (_) {} }
+  if (startF) { try { const b = await loadSoundBuffer(startF); const s = audioCtx.createBufferSource(); s.buffer = b; const sg = audioCtx.createGain(); sg.gain.value = demoLvl("startVolumePercentage", 140) * demoMaster() * 1.4; s.connect(sg); sg.connect(bus); s.start(); } catch (_) {} }
   const idleBuf = await loadSoundBuffer(idleF);
   const revBuf = revF ? await loadSoundBuffer(revF).catch(() => idleBuf) : idleBuf;
   const idleSrc = audioCtx.createBufferSource(); idleSrc.buffer = idleBuf; idleSrc.loop = true;
   const revSrc = audioCtx.createBufferSource(); revSrc.buffer = revBuf; revSrc.loop = true;
   const idleGain = audioCtx.createGain(), revGain = audioCtx.createGain();
-  idleGain.connect(audioCtx.destination); revGain.connect(audioCtx.destination);
+  idleGain.connect(bus); revGain.connect(bus);
   idleSrc.connect(idleGain); revSrc.connect(revGain);
   idleSrc.start(); revSrc.start();
-  demo = { idleSrc, revSrc, idleGain, revGain };
-  if (fadeInMs) {                 // crossfade: crank plays, idle loop fades in behind it
-    idleGain.gain.value = 0; revGain.gain.value = 0;
-    idleGain.gain.setTargetAtTime(1, audioCtx.currentTime, fadeInMs / 3000);
-  } else {
-    demoThrottle(0);
-  }
+  demo = { idleSrc, revSrc, idleGain, revGain, throttle: 0, bog: false };
+  if (turboF) { try {
+    const tb = await loadSoundBuffer(turboF);
+    const turboSrc = audioCtx.createBufferSource(); turboSrc.buffer = tb; turboSrc.loop = true;
+    const turboGain = audioCtx.createGain(); turboGain.gain.value = 0; turboGain.connect(bus); turboSrc.connect(turboGain);
+    turboSrc.start(); demo.turboSrc = turboSrc; demo.turboGain = turboGain;
+  } catch (_) {} }
+  if (fadeInMs) { idleGain.gain.value = 0; revGain.gain.value = 0; idleGain.gain.setTargetAtTime(demoLvl("idleVolumePercentage", 100) * demoMaster(), audioCtx.currentTime, fadeInMs / 3000); }
+  else { demoThrottle(0); }
 }
-// A looping effect (track rattle for driving, etc.) with a smooth fade in/out.
+// A looping effect (track rattle / pump / relief) with a smooth fade in/out.
 function demoLoop(nodeRef, slot, vol) {
   if (nodeRef.n || !audioCtx) return;
   const f = slotFile(slot); if (!f) return;
   loadSoundBuffer(f).then((b) => {
     if (nodeRef.n) return;
     const src = audioCtx.createBufferSource(); src.buffer = b; src.loop = true;
-    const g = audioCtx.createGain(); g.gain.value = 0; g.connect(audioCtx.destination); src.connect(g);
+    const g = audioCtx.createGain(); g.gain.value = 0; g.connect(demoAudioBus()); src.connect(g);
     src.start(); nodeRef.n = { src, g };
     g.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.18);
   }).catch(() => {});
@@ -313,25 +330,36 @@ function demoLoopStop(nodeRef) {
   const n = nodeRef.n; nodeRef.n = null;
   try { n.g.gain.setTargetAtTime(0, audioCtx.currentTime, 0.12); setTimeout(() => { try { n.src.stop(); } catch (_) {} }, 300); } catch (_) {}
 }
-const demoTrackRef = { n: null };
-function demoStartTracks() { demoLoop(demoTrackRef, "trackRattleSound", 0.85); }
+const demoTrackRef = { n: null }, demoPumpRef = { n: null }, demoReliefRef = { n: null };
+function demoStartTracks() { demoLoop(demoTrackRef, "trackRattleSound", demoLvl("trackRattleVolumePercentage", 100) * demoMaster()); }
 function demoStopTracks() { demoLoopStop(demoTrackRef); }
-function demoThrottle(t) { // t 0..1 — crossfade idle→rev and pitch up, like the firmware
-  if (!demo) return;
-  const now = audioCtx.currentTime;
-  demo.idleGain.gain.setTargetAtTime(Math.max(0, 1 - t * 0.85), now, 0.08);
-  demo.revGain.gain.setTargetAtTime(t, now, 0.08);
-  const rate = 0.85 + t * 0.55;
-  demo.idleSrc.playbackRate.setTargetAtTime(rate, now, 0.08);
-  demo.revSrc.playbackRate.setTargetAtTime(rate, now, 0.08);
-}
-const demoPumpRef = { n: null }; // hydraulic pump-whine loop
-function demoStartPump() { demoLoop(demoPumpRef, "hydraulicPumpSound", 0.9); }
+function demoStartPump(boost) { demoLoop(demoPumpRef, "hydraulicPumpSound", demoLvl("hydraulicPumpVolumePercentage", 100) * demoMaster() * (boost || 1)); }
 function demoStopPump() { demoLoopStop(demoPumpRef); }
-function demoOneShot(slot) { const f = slotFile(slot); if (f) previewSound(f); else toast("No sound set for that.", "err"); }
+function demoStartRelief() { demoLoop(demoReliefRef, "hydraulicFlowSound", demoLvl("hydraulicFlowVolumePercentage", 150) * demoMaster() * 1.4); }
+function demoStopRelief() { demoLoopStop(demoReliefRef); }
+function demoThrottle(t) { // crossfade idle→rev, spool the turbo, pitch up — all scaled by the Levels tab
+  if (!demo) return;
+  demo.throttle = t;
+  const now = audioCtx.currentTime, m = demoMaster();
+  demo.idleGain.gain.setTargetAtTime(demoLvl("idleVolumePercentage", 100) * m * Math.max(0, 1 - t * 0.85), now, 0.08);
+  demo.revGain.gain.setTargetAtTime(demoLvl("revVolumePercentage", 110) * m * t, now, 0.08);
+  if (demo.turboGain) demo.turboGain.gain.setTargetAtTime(demoLvl("turboVolumePercentage", 90) * m * Math.pow(t, 1.4), now, 0.12);
+  const rate = (demo.bog ? 0.62 : 0.85) + t * 0.55; // bog = rpm sags
+  demo.idleSrc.playbackRate.setTargetAtTime(rate, now, demo.bog ? 0.04 : 0.1);
+  demo.revSrc.playbackRate.setTargetAtTime(rate, now, demo.bog ? 0.04 : 0.1);
+  if (demo.turboSrc) demo.turboSrc.playbackRate.setTargetAtTime(0.9 + t * 0.5, now, 0.12);
+}
+function demoBog(on) { if (demo) { demo.bog = on; demoThrottle(demo.throttle); } }
+function demoOneShot(slot, key, d) {
+  const f = slotFile(slot); if (!f) { toast("No sound set for that.", "err"); return; }
+  loadSoundBuffer(f).then((b) => {
+    const s = audioCtx.createBufferSource(); s.buffer = b;
+    const g = audioCtx.createGain(); g.gain.value = demoLvl(key, d != null ? d : 100) * demoMaster() * 2.4; g.connect(demoAudioBus()); s.connect(g); s.start();
+  }).catch(() => {});
+}
 function demoStop() {
-  demoStopPump(); demoStopTracks();
-  if (demo) { try { demo.idleSrc.stop(); demo.revSrc.stop(); } catch (_) {} demo = null; }
+  demoStopPump(); demoStopTracks(); demoStopRelief();
+  if (demo) { try { demo.idleSrc.stop(); demo.revSrc.stop(); if (demo.turboSrc) demo.turboSrc.stop(); } catch (_) {} demo = null; }
 }
 
 // Scripted auto-demo (your walkaround): crank → crossfade to idle → throttle up → hold →
@@ -353,18 +381,24 @@ async function demoAuto(onThrottle, onStage) {
   };
   try {
     stage("🔑 Starting up…");          await demoStart(1500); if (!demo) return; // crank crossfades into idle
-    await sleep(2200);                                                            // let it settle at idle
+    await sleep(4500);                                                            // hold idle a good while
     if (!alive()) return;
-    stage("🔺 Throttle up");           await glide(0, 1.0, 1200);                 // idle up all the way
-    await sleep(1000);                                                            // hold
+    stage("🔺 Throttle up");           await glide(0, 0.85, 1300);                // idle up
+    await sleep(1200);                                                            // hold
     if (!alive()) return;
-    stage("🔧 Lowering the blade");    demoStartPump(); await sleep(1600);        // hydraulics engage
+    stage("🔧 Lowering the blade");    demoStartPump(); await sleep(1500);        // hydraulics engage
     if (!alive()) return;
-    stage("🚜 Driving forward");       demoStartTracks(); await sleep(2400);      // tracks moving
+    stage("🚜 Driving forward");       demoStartTracks(); await glide(0.85, 1.0, 700); await sleep(1000);
     if (!alive()) return;
+    // Push into the pile — engine bogs, relief cracks and squeals, pump roars.
+    stage("💥 Digging in — she's bogging!");
+    demoStartRelief(); demoStartPump(1.6); demoBog(true);
+    await sleep(2600);
+    if (!alive()) return;
+    stage("😮‍💨 Pulling out");          demoBog(false); demoStopRelief(); demoStartPump(1.0); await sleep(1100);
     stage("🛑 Stop");                  demoStopTracks(); await sleep(700);
-    stage("🔻 Back to idle");          demoStopPump(); await glide(1.0, 0, 1400); if (onThrottle) onThrottle(0);
-    await sleep(1200);
+    stage("🔻 Back to idle");          demoStopPump(); await glide(1.0, 0, 1500); if (onThrottle) onThrottle(0);
+    await sleep(1400);
     stage("🔌 Engine off");            demoStop();
     await sleep(200); stage("");
   } finally { demoAutoRunning = false; }
@@ -394,7 +428,7 @@ function renderForgePane() {
       <button id="demoAutoBtn" class="primary">🎬 Auto demo</button>
       <span id="demoStage" class="pane-sub" style="margin:0;font-style:normal"></span>
     </div>
-    <p class="pane-sub" style="margin:10px 0 0">Auto demo: cranks up → settles to idle → throttles up → lowers the blade → drives forward → stops → back to idle → shuts off.</p>
+    <p class="pane-sub" style="margin:10px 0 0">Auto demo: cranks up → idles → throttles up → lowers the blade → drives forward → <b>digs in and bogs over the relief</b> → pulls out → back to idle → shuts off. Reacts to your Levels.</p>
     <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
     <div class="row" style="gap:12px;flex-wrap:wrap">
       <button id="demoStartBtn">▶ Start engine</button>
@@ -621,9 +655,9 @@ function wireForgePane() {
     thr.disabled = true;
     demoAuto(setThr, (s) => { if (stageEl) stageEl.textContent = s; });
   };
-  $("demoHorn").onclick = () => demoOneShot("hornSound");
-  $("demoRevBeep").onclick = () => demoOneShot("reversingSound");
-  $("demoReliefBtn").onclick = () => demoOneShot("hydraulicFlowSound");
+  $("demoHorn").onclick = () => demoOneShot("hornSound", "hornVolumePercentage", 140);
+  $("demoRevBeep").onclick = () => demoOneShot("reversingSound", "reversingVolumePercentage", 100);
+  $("demoReliefBtn").onclick = () => demoOneShot("hydraulicFlowSound", "hydraulicFlowVolumePercentage", 150);
   const pb = $("demoPumpBtn");
   pb.onmousedown = demoStartPump; pb.onmouseup = demoStopPump; pb.onmouseleave = demoStopPump;
   pb.ontouchstart = (e) => { e.preventDefault(); demoStartPump(); }; pb.ontouchend = demoStopPump;

@@ -1299,7 +1299,13 @@ def spa_schema():
 
     return {"vehicles": [], "currentVehicle": None, "vehicleTab": None,
             "tabs": [machine, levels], "soundChoices": sound_choices,
-            "sounds": sounds, "presets": []}
+            "sounds": sounds, "presets": [],
+            "levels": {k: cfg[k] for k in (
+                "masterVolume", "idleVolumePercentage", "revVolumePercentage",
+                "fullThrottleVolumePercentage", "turboVolumePercentage",
+                "hydraulicPumpVolumePercentage", "hydraulicFlowVolumePercentage",
+                "trackRattleVolumePercentage", "bucketRattleVolumePercentage",
+                "hornVolumePercentage", "reversingVolumePercentage") if isinstance(cfg.get(k), int)}}
 
 def spa_save(payload):
     """Translate app.js's {file:{name:{kind,value|enabled}}} into a merged write_config()."""
