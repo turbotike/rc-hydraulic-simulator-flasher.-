@@ -340,12 +340,44 @@ function demoLoopStop(nodeRef) {
   try { n.g.gain.setTargetAtTime(0, audioCtx.currentTime, 0.12); setTimeout(() => { try { n.src.stop(); } catch (_) {} }, 300); } catch (_) {}
 }
 const demoTrackRef = { n: null }, demoPumpRef = { n: null }, demoReliefRef = { n: null };
-function demoStartTracks() { demoLoop(demoTrackRef, "trackRattleSound", demoLvl("trackRattleVolumePercentage", 100) * demoMaster(), 0.4); }
-function demoStopTracks() { demoLoopStop(demoTrackRef); }
-// Continuous rattle loop whose pace rides the machine speed (0 = crawling, 1 = full pace).
+
+// Hydrostatic drive whine — a synthesized transmission whine (pump/motor "sing") that rises in
+// pitch and swells with track speed. This is the drive sound; the pump loop is a separate thing.
+const demoWhine = { o1: null, o2: null, filt: null, g: null };
+function demoStartWhine() {
+  if (demoWhine.g || !audioCtx) return;
+  const o1 = audioCtx.createOscillator(); o1.type = "sawtooth";
+  const o2 = audioCtx.createOscillator(); o2.type = "triangle"; // octave up = thin electric whine
+  const filt = audioCtx.createBiquadFilter(); filt.type = "bandpass"; filt.frequency.value = 1400; filt.Q.value = 4;
+  const g = audioCtx.createGain(); g.gain.value = 0;
+  o1.connect(filt); o2.connect(filt); filt.connect(g); g.connect(demoAudioBus());
+  o1.start(); o2.start();
+  demoWhine.o1 = o1; demoWhine.o2 = o2; demoWhine.filt = filt; demoWhine.g = g;
+}
+function demoStopWhine() {
+  const w = demoWhine; if (!w.g) return;
+  const o1 = w.o1, o2 = w.o2;
+  try { w.g.gain.setTargetAtTime(0, audioCtx.currentTime, 0.15); } catch (_) {}
+  setTimeout(() => { try { o1.stop(); o2.stop(); } catch (_) {} }, 400);
+  w.o1 = w.o2 = w.filt = w.g = null;
+}
+function demoWhineSpeed(s) {
+  const w = demoWhine; if (!w.g) return;
+  const now = audioCtx.currentTime;
+  const base = 240 + s * 560; // ~240Hz crawl → ~800Hz full pace
+  try { w.o1.frequency.setTargetAtTime(base, now, 0.18); } catch (_) {}
+  try { w.o2.frequency.setTargetAtTime(base * 2, now, 0.18); } catch (_) {}
+  try { w.filt.frequency.setTargetAtTime(600 + s * 1700, now, 0.18); } catch (_) {}
+  try { w.g.gain.setTargetAtTime(demoMaster() * (0.03 + 0.15 * s), now, 0.2); } catch (_) {}
+}
+
+function demoStartTracks() { demoStartWhine(); demoLoop(demoTrackRef, "trackRattleSound", demoLvl("trackRattleVolumePercentage", 100) * demoMaster(), 0.4); }
+function demoStopTracks() { demoStopWhine(); demoLoopStop(demoTrackRef); }
+// Ride the drive whine + rattle pace with the machine speed (0 = crawling, 1 = full pace).
 function demoTrackRate(speed) {
-  if (!demoTrackRef.n) return;
   const s = Math.max(0, Math.min(1, speed));
+  demoWhineSpeed(s);
+  if (!demoTrackRef.n) return;
   const r = 0.38 + s * 0.22; // ~0.38 crawling → ~0.60 full pace (tamed top end)
   const g = demoLvl("trackRattleVolumePercentage", 100) * demoMaster() * (0.5 + 0.5 * s);
   try { demoTrackRef.n.src.playbackRate.setTargetAtTime(r, audioCtx.currentTime, 0.2); } catch (_) {}
