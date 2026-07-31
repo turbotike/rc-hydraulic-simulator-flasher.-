@@ -360,7 +360,7 @@ volatile int sound1VolumePercentage = 100;
 
 // --- Travel Alarm (Reversing beep) ---
 volatile int reversingVolumePercentage = 205;
-boolean reversingBeepEnabled = true;  // reversing beeper on/off — plays ONLY when backing up
+uint8_t reversingBeepMode = 1;  // 0 = off, 1 = reverse only, 2 = forward + reverse
 #include "sounds/TruckReversingBeep.h"
 
 // --- Indicator tick ---

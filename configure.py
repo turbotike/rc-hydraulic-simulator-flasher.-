@@ -425,7 +425,7 @@ def write_config(cfg):
         "escBrakeSteps", "escAccelerationSteps",
         "hydraulicRampTime", "hydraulicDeadZone",
         "autoIdleDelayMs", "driveExpo", "hydrostaticWhineVolumePercentage",
-        "trackRattleSpeedPercent",
+        "trackRattleSpeedPercent", "reversingBeepMode",
         "masterVolume", "indicatorOn",
         "hiLoRatioPercent",
         # Channel mapping
@@ -450,7 +450,7 @@ def write_config(cfg):
     # Boolean consts
     bool_vars = ["automatic", "doubleClutch", "shiftingAutoThrottle", "INDICATOR_DIR",
                  "hiLoEnabled", "hiLoDefaultHigh", "autoEngineStart",
-                 "reversingBeepEnabled", "autoIdleEnabled"]
+                 "autoIdleEnabled"]
     for var in bool_vars:
         if var in cfg:
             # Normalize: accept bool, string, or int → always "true"/"false"
@@ -1252,9 +1252,9 @@ def spa_schema():
         sld("driveExpo", "Drive stick expo", cfg.get("driveExpo", 30),
             0, 100, 5, "%", "Softens the drive stick around centre so small moves are gentle for "
             "fine control; full throw still reaches max. 0 = linear."),
-        sel("reversingBeepEnabled", "Reversing beeper", cfg.get("reversingBeepEnabled"),
-            [("true", "On — beeps when backing up"), ("false", "Off")],
-            "The backup beeper. Plays only when the machine is reversing."),
+        sel("reversingBeepMode", "Reversing beeper", str(cfg.get("reversingBeepMode", 1)),
+            [("1", "Reverse only"), ("2", "Forward + reverse"), ("0", "Off")],
+            "The backup beeper: off, only when backing up, or whenever the machine moves."),
         sld("trackRattleSpeedPercent", "Track rattle speed", cfg.get("trackRattleSpeedPercent", 60),
             40, 150, 5, "%", "Top rattle speed at full track pace; it eases down to a slower crawl "
             "rattle like the demo. 100 = native pitch, lower = slower/deeper."),

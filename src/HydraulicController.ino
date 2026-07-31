@@ -525,8 +525,10 @@ void IRAM_ATTR fixedPlaybackTimer() {
     curSound1Sample = 0;
   }
 
-  // Reversing beep — only when backing up, and only if the beeper switch is on.
-  boolean alarmActive = reversingBeepEnabled && engineRunning && escInReverse;
+  // Reversing beep: 0 = off, 1 = reverse only, 2 = forward + reverse.
+  boolean alarmActive = engineRunning &&
+      ((reversingBeepMode == 1 && escInReverse) ||
+       (reversingBeepMode == 2 && (escInReverse || escIsDriving)));
   if (alarmActive) {
     if (curReversingSample < reversingSampleCount - 1) {
       b1 = (reversingSamples[curReversingSample] * reversingVolumePercentage / 100);
@@ -1314,9 +1316,16 @@ void updateGamepadRumble() {
   if (engineState == STARTING) { weak = 90; strong = 140; } // cranking shudder
   else if (engineRunning) {
     int load = constrain(totalFlowDemand, (int16_t)0, (int16_t)100); // 0..100 pump demand
-    weak = 26 + (uint8_t)(load * 30 / 100);                          // idle purr + buzz under load
-    strong = (uint8_t)(load * 200 / 100);                           // load -> up to ~200
-    if (strain) { weak = 60; strong = 255; }                        // sustained strain = full bump
+    // Lopey diesel idle throb: a slow ~2.8Hz lope on the light motor so it RUMBLES at idle, fading
+    // out as load rises (where the load buzz takes over).
+    uint32_t ph = millis() % 360;
+    int tri = (ph < 180) ? (int)ph : (int)(360 - ph);   // 0..180..0 triangle
+    int amp = 18 * (100 - load) / 100;                  // ±18 at idle, → 0 under load
+    int throb = (tri - 90) * amp / 90;                  // -amp..+amp
+    int wv = 24 + (load * 30 / 100) + throb;            // idle rumble base + load buzz + throb
+    weak = (uint8_t)constrain(wv, 0, 255);
+    strong = (uint8_t)(load * 200 / 100);              // load -> up to ~200
+    if (strain) { weak = 60; strong = 255; }           // sustained strain = full bump
   }
   gpController->playDualRumble(0, 160, weak, strong); // duration > refresh -> continuous
 #endif
