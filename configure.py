@@ -1298,7 +1298,8 @@ def spa_schema():
                      for slot, title in slot_titles if sounds.get(slot)]
 
     return {"vehicles": [], "currentVehicle": None, "vehicleTab": None,
-            "tabs": [machine, levels], "soundChoices": sound_choices, "presets": []}
+            "tabs": [machine, levels], "soundChoices": sound_choices,
+            "sounds": sounds, "presets": []}
 
 def spa_save(payload):
     """Translate app.js's {file:{name:{kind,value|enabled}}} into a merged write_config()."""

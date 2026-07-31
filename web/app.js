@@ -254,6 +254,106 @@ async function previewSound(file) {
   } catch (e) { toast("Preview failed: " + e.message, "err"); }
 }
 
+// ---- Engine demo (browser preview of the whole sound pack) ----
+const soundBufCache = {};
+async function loadSoundBuffer(file) {
+  if (soundBufCache[file]) return soundBufCache[file];
+  const j = await (await fetch("/sound_pcm/" + encodeURIComponent(file))).json();
+  if (!j.ok || !j.samples) throw new Error(j.error || "Couldn't load " + file);
+  audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+  const buf = audioCtx.createBuffer(1, j.samples.length, j.sampleRate || 22050);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < j.samples.length; i++) ch[i] = j.samples[i] / 128;
+  soundBufCache[file] = buf; return buf;
+}
+function slotFile(slot) { // the currently-selected sound file for a slot
+  const s = state.schema.sounds || {};
+  if (s[slot]) return s[slot];
+  const g = (state.schema.soundChoices || []).find((x) => x.key === slot);
+  return g ? g.selected : null;
+}
+let demo = null; // { idleSrc, revSrc, idleGain, revGain }
+async function demoStart() {
+  audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+  try { await audioCtx.resume(); } catch (_) {}
+  demoStop();
+  const idleF = slotFile("idleSound"), revF = slotFile("revSound"), startF = slotFile("startSound");
+  if (!idleF) { toast("No idle sound set.", "err"); return; }
+  if (startF) { try { const b = await loadSoundBuffer(startF); const s = audioCtx.createBufferSource(); s.buffer = b; s.connect(audioCtx.destination); s.start(); } catch (_) {} }
+  const idleBuf = await loadSoundBuffer(idleF);
+  const revBuf = revF ? await loadSoundBuffer(revF).catch(() => idleBuf) : idleBuf;
+  const idleSrc = audioCtx.createBufferSource(); idleSrc.buffer = idleBuf; idleSrc.loop = true;
+  const revSrc = audioCtx.createBufferSource(); revSrc.buffer = revBuf; revSrc.loop = true;
+  const idleGain = audioCtx.createGain(), revGain = audioCtx.createGain();
+  idleGain.connect(audioCtx.destination); revGain.connect(audioCtx.destination);
+  idleSrc.connect(idleGain); revSrc.connect(revGain);
+  idleSrc.start(); revSrc.start();
+  demo = { idleSrc, revSrc, idleGain, revGain };
+  demoThrottle(0);
+}
+function demoThrottle(t) { // t 0..1 — crossfade idle→rev and pitch up, like the firmware
+  if (!demo) return;
+  const now = audioCtx.currentTime;
+  demo.idleGain.gain.setTargetAtTime(Math.max(0, 1 - t * 0.85), now, 0.08);
+  demo.revGain.gain.setTargetAtTime(t, now, 0.08);
+  const rate = 0.85 + t * 0.55;
+  demo.idleSrc.playbackRate.setTargetAtTime(rate, now, 0.08);
+  demo.revSrc.playbackRate.setTargetAtTime(rate, now, 0.08);
+}
+let demoPumpNode = null; // hydraulic pump-whine loop { src, g }
+function demoStartPump() {
+  if (demoPumpNode || !audioCtx) return;
+  const f = slotFile("hydraulicPumpSound"); if (!f) return;
+  loadSoundBuffer(f).then((b) => {
+    if (demoPumpNode) return;
+    const src = audioCtx.createBufferSource(); src.buffer = b; src.loop = true;
+    const g = audioCtx.createGain(); g.gain.value = 0; g.connect(audioCtx.destination); src.connect(g);
+    src.start(); demoPumpNode = { src, g };
+    g.gain.setTargetAtTime(0.9, audioCtx.currentTime, 0.2);
+  }).catch(() => {});
+}
+function demoStopPump() {
+  if (!demoPumpNode) return;
+  const n = demoPumpNode; demoPumpNode = null;
+  try { n.g.gain.setTargetAtTime(0, audioCtx.currentTime, 0.12); setTimeout(() => { try { n.src.stop(); } catch (_) {} }, 300); } catch (_) {}
+}
+function demoOneShot(slot) { const f = slotFile(slot); if (f) previewSound(f); else toast("No sound set for that.", "err"); }
+function demoStop() {
+  demoStopPump();
+  if (demo) { try { demo.idleSrc.stop(); demo.revSrc.stop(); } catch (_) {} demo = null; }
+}
+
+// Scripted auto-demo: crank → high idle → push till it bogs & reliefs → ease to idle → shut off.
+let demoAutoRunning = false;
+async function demoAuto(onThrottle, onStage) {
+  if (demoAutoRunning) return;
+  demoAutoRunning = true;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const stage = (s) => { if (onStage) onStage(s); };
+  const glide = async (from, to, ms) => {
+    const steps = Math.max(1, Math.round(ms / 60));
+    for (let i = 1; i <= steps && demoAutoRunning && demo; i++) {
+      const t = from + (to - from) * i / steps;
+      demoThrottle(t); if (onThrottle) onThrottle(t);
+      await sleep(60);
+    }
+  };
+  try {
+    stage("🔑 Cranking…");          await demoStart(); if (!demo) return;
+    await sleep(2000);
+    stage("🏗️ High idle");          await glide(0, 0.4, 900); await sleep(800);
+    stage("💪 Loading up…");         demoStartPump(); await glide(0.4, 0.95, 1900); await sleep(400);
+    stage("💥 Over relief — bogging!");
+    demoOneShot("hydraulicFlowSound");
+    if (demo) { const now = audioCtx.currentTime; demo.idleSrc.playbackRate.setTargetAtTime(0.72, now, 0.06); demo.revSrc.playbackRate.setTargetAtTime(0.72, now, 0.06); } // rpm sag
+    await sleep(1600);
+    stage("😮‍💨 Easing back to idle"); await glide(0.95, 0, 1700); demoStopPump(); if (onThrottle) onThrottle(0);
+    await sleep(1000);
+    stage("🛑 Shutting down");        demoStop();
+    await sleep(200); stage("");
+  } finally { demoAutoRunning = false; }
+}
+
 function renderForgePane() {
   const pane = el("div", "tabpane");
   pane.appendChild(el("h2", "pane-title", "🔊 Sound Technician"));
@@ -268,6 +368,34 @@ function renderForgePane() {
       <span class="val" id="masterVolVal">100%</span>
     </div>`;
   pane.appendChild(vcard);
+
+  // Engine demo — hear the pack without flashing
+  const demoCard = el("div", "card");
+  demoCard.innerHTML = `
+    <div class="sound-cat">🎧 Demo — hear your sound pack</div>
+    <p class="pane-sub">Hear the whole thing in the browser, no flashing needed. Uses the sounds you've got selected.</p>
+    <div class="row" style="gap:12px;flex-wrap:wrap;align-items:center">
+      <button id="demoAutoBtn" class="primary">🎬 Auto demo</button>
+      <span id="demoStage" class="pane-sub" style="margin:0;font-style:normal"></span>
+    </div>
+    <p class="pane-sub" style="margin:10px 0 0">Auto demo: cranks up → high idle → digs in until it bogs over the relief → eases back to idle → shuts off.</p>
+    <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
+    <div class="row" style="gap:12px;flex-wrap:wrap">
+      <button id="demoStartBtn">▶ Start engine</button>
+      <button id="demoStopBtn">⏹ Stop</button>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <strong style="min-width:90px">Throttle</strong>
+      <input type="range" id="demoThr" min="0" max="100" step="1" value="0" disabled>
+      <span class="val" id="demoThrVal">idle</span>
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:14px">
+      <button id="demoHorn" class="mini">📯 Horn</button>
+      <button id="demoRevBeep" class="mini">🔔 Reversing</button>
+      <button id="demoReliefBtn" class="mini">💥 Relief</button>
+      <button id="demoPumpBtn" class="mini">🔧 Pump (hold)</button>
+    </div>`;
+  pane.appendChild(demoCard);
 
   // Sound choosers
   const choices = state.schema.soundChoices || [];
@@ -465,6 +593,24 @@ function wireForgePane() {
     clearTimeout(volTimer);
     volTimer = setTimeout(() => post("/set_volume", { volume: parseInt(e.target.value, 10) }).then(() => toast("Volume saved.", "ok")).catch((err) => toast(err.message, "err")), 500);
   };
+
+  // --- Engine demo wiring ---
+  demoStop(); // stop any prior demo when this pane re-renders
+  const thr = $("demoThr"), thrVal = $("demoThrVal"), stageEl = $("demoStage");
+  const setThr = (t) => { const p = Math.round(t * 100); thr.value = p; thrVal.textContent = p === 0 ? "idle" : p + "%"; };
+  $("demoStartBtn").onclick = async () => { await demoStart(); if (demo) { thr.disabled = false; toast("Engine running — work the throttle.", "ok"); } };
+  $("demoStopBtn").onclick = () => { demoStop(); thr.disabled = true; setThr(0); };
+  thr.oninput = () => { const t = thr.value / 100; demoThrottle(t); thrVal.textContent = thr.value == 0 ? "idle" : thr.value + "%"; };
+  $("demoAutoBtn").onclick = () => {
+    thr.disabled = true;
+    demoAuto(setThr, (s) => { if (stageEl) stageEl.textContent = s; });
+  };
+  $("demoHorn").onclick = () => demoOneShot("hornSound");
+  $("demoRevBeep").onclick = () => demoOneShot("reversingSound");
+  $("demoReliefBtn").onclick = () => demoOneShot("hydraulicFlowSound");
+  const pb = $("demoPumpBtn");
+  pb.onmousedown = demoStartPump; pb.onmouseup = demoStopPump; pb.onmouseleave = demoStopPump;
+  pb.ontouchstart = (e) => { e.preventDefault(); demoStartPump(); }; pb.ontouchend = demoStopPump;
 }
 
 function renderFlashPane() {
@@ -687,6 +833,7 @@ function buildGamepadUI(root) {
 
 function render() {
   if (!state.activeTab) { const t0 = allTabs()[0]; state.activeTab = t0 ? (t0.id || t0.file) : FLASH; }
+  if (state.activeTab !== FORGE) { demoAutoRunning = false; demoStop(); } // silence the demo when leaving Sound
   renderTabBar();
   const content = $("content"); content.innerHTML = "";
   if (state.activeTab === FLASH) { content.appendChild(renderFlashPane()); wireFlashPane(); }
