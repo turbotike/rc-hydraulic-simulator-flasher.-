@@ -341,39 +341,42 @@ function demoLoopStop(nodeRef) {
 }
 const demoTrackRef = { n: null }, demoPumpRef = { n: null }, demoReliefRef = { n: null };
 
-// Hydrostatic drive whine — a synthesized DEEP pump/motor "sing" that rises with the swashplate.
-// Two slightly-detuned sawtooths through a resonant LOWPASS: the moving resonant peak is the whine,
-// but it stays low and thick (not the thin octave-up siren). Level comes from the Levels tab.
-const demoWhine = { o1: null, o2: null, filt: null, g: null };
+// Hydrostatic drive whine — the original procedural squeal sample (hydroWhine.h) looped and pitched
+// by the swashplate: deep at low stroke, climbs to a whine at full stroke. Level from the Levels tab.
+const demoWhine = { src: null, filt: null, g: null };
+let demoSwashLast = 0;
 function demoStartWhine() {
   if (demoWhine.g || !audioCtx) return;
-  const o1 = audioCtx.createOscillator(); o1.type = "sawtooth";
-  const o2 = audioCtx.createOscillator(); o2.type = "sawtooth"; o2.detune.value = 9; // thickness, not an octave
-  const filt = audioCtx.createBiquadFilter(); filt.type = "lowpass"; filt.frequency.value = 300; filt.Q.value = 10;
+  const filt = audioCtx.createBiquadFilter(); filt.type = "lowpass"; filt.frequency.value = 1400; filt.Q.value = 3;
   const g = audioCtx.createGain(); g.gain.value = 0;
-  o1.connect(filt); o2.connect(filt); filt.connect(g); g.connect(demoAudioBus());
-  o1.start(); o2.start();
-  demoWhine.o1 = o1; demoWhine.o2 = o2; demoWhine.filt = filt; demoWhine.g = g;
+  filt.connect(g); g.connect(demoAudioBus());
+  demoWhine.filt = filt; demoWhine.g = g;
+  loadSoundBuffer("hydroWhine.h").then((b) => {
+    if (!demoWhine.g) return; // stopped before it loaded
+    const src = audioCtx.createBufferSource(); src.buffer = b; src.loop = true;
+    src.playbackRate.value = 0.3; src.connect(filt); src.start();
+    demoWhine.src = src; demoSwash(demoSwashLast || 0.15);
+  }).catch(() => {});
 }
 function demoStopWhine() {
   const w = demoWhine; if (!w.g) return;
-  const o1 = w.o1, o2 = w.o2;
+  const src = w.src;
   try { w.g.gain.setTargetAtTime(0, audioCtx.currentTime, 0.15); } catch (_) {}
-  setTimeout(() => { try { o1.stop(); o2.stop(); } catch (_) {} }, 400);
-  w.o1 = w.o2 = w.filt = w.g = null;
+  setTimeout(() => { try { if (src) src.stop(); } catch (_) {} }, 400);
+  w.src = w.filt = w.g = null;
 }
 // Whine rides the SWASHPLATE (pump displacement / drive command), NOT the track speed — so under
 // load, when the tracks droop and slow, the whine holds up because the pump is still stroked hard.
 function demoSwash(amount) {
   const a = Math.max(0, Math.min(1, amount));
+  demoSwashLast = a;
   const w = demoWhine; if (!w.g) return;
   const now = audioCtx.currentTime;
-  const base = 90 + a * 410;                                   // spools ~90Hz low stroke → ~500Hz full stroke
   const lvl = demoLvl("hydrostaticWhineVolumePercentage", 120);
-  // Slow frequency glide (~0.55s) = a flywheel winding up, like a radial engine inertia starter.
-  try { w.o1.frequency.setTargetAtTime(base, now, 0.55); } catch (_) {}
-  try { w.o2.frequency.setTargetAtTime(base, now, 0.55); } catch (_) {}
-  try { w.filt.frequency.setTargetAtTime(base * 3.2 + 110, now, 0.55); } catch (_) {} // resonant peak = the singing whine
+  const rate = 0.28 + a * 0.5;                                 // deep at low stroke → whine at full stroke
+  // Slow glide (~0.5s) = the flywheel/pump winding up, like a radial engine inertia starter.
+  if (w.src) { try { w.src.playbackRate.setTargetAtTime(rate, now, 0.5); } catch (_) {} }
+  try { w.filt.frequency.setTargetAtTime(700 + a * 1800, now, 0.5); } catch (_) {}
   try { w.g.gain.setTargetAtTime(demoMaster() * (0.06 + 0.34 * a) * lvl, now, 0.25); } catch (_) {}
 }
 
@@ -390,7 +393,7 @@ function demoTrackRate(speed) {
 }
 function demoStartPump(boost) { demoLoop(demoPumpRef, "hydraulicPumpSound", demoLvl("hydraulicPumpVolumePercentage", 100) * demoMaster() * (boost || 1)); }
 function demoStopPump() { demoLoopStop(demoPumpRef); }
-function demoStartRelief() { demoLoop(demoReliefRef, "hydraulicFlowSound", demoLvl("hydraulicFlowVolumePercentage", 150) * demoMaster() * 1.4, 0.6); }
+function demoStartRelief() { demoLoop(demoReliefRef, "hydraulicFlowSound", demoLvl("hydraulicFlowVolumePercentage", 150) * demoMaster() * 1.4, 1.0); }
 function demoStopRelief() { demoLoopStop(demoReliefRef); }
 function demoThrottle(t) { // crossfade idle→rev, spool the turbo, pitch up — all scaled by the Levels tab
   if (!demo) return;
