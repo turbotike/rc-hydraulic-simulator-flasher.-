@@ -18,6 +18,7 @@
 
 #include <Arduino.h>
 #include <Preferences.h>
+#include <driver/dac.h>   // to power the DAC channels down when the engine is off (kills idle hiss)
 #include "config.h"
 #include "soundpack.h"
 #include "gamepad.h"
@@ -1312,27 +1313,37 @@ void updateGamepadRumble() {
   }
   prevStrain = strain;
 
-  if (millis() - lastMs < 120) return; // ~8 Hz refresh
+  if (millis() - lastMs < 60) return; // ~16 Hz refresh — smooth enough to PULSE the tracks
   lastMs = millis();
 
   uint8_t weak = 0, strong = 0;
   if (engineState == STARTING) { weak = 90; strong = 140; } // cranking shudder
   else if (engineRunning) {
-    int load = constrain(totalFlowDemand, (int16_t)0, (int16_t)100); // 0..100 pump demand
-    if (load < 12) {
-      // Idle lope: a rhythmic thump (~2.4Hz). The peaks must clear the DS4 motor's spin threshold
-      // (a low steady value just won't turn the motor), so pulse it — that's what you FEEL at idle.
-      uint32_t ph = millis() % 420;
-      bool beat = (ph < 160);
-      weak   = beat ? 115 : 28;
-      strong = beat ? 65  : 0;
+    int implLoad = constrain((int)implFlowDemand, 0, 100);                        // implements → smooth HYDRAULIC rumble
+    int trkSpd   = constrain((abs((int)actualTrackL) + abs((int)actualTrackR)) / 10, 0, 100); // 0..100 track speed
+
+    // Hydraulic rumble: smooth, follows implement load (kept as-is).
+    int hydW = (implLoad > 3) ? 40 + implLoad * 40 / 100 : 0;
+    int hydS = implLoad * 170 / 100;
+
+    // Track vibration: PULSE in rhythm with track speed — faster tracks = faster thumps (like the
+    // track links passing). At a standstill it falls back to a gentle idle lope.
+    int trkW = 0, trkS = 0;
+    if (trkSpd > 4) {
+      uint32_t period = (uint32_t)map(trkSpd, 4, 100, 300, 140);  // ms between thumps: slow → fast
+      bool beat = (millis() % period) < (period / 2);
+      if (beat) { trkS = 70 + trkSpd * 120 / 100; trkW = 45; }    // thump strength grows with speed
     } else {
-      weak   = 40 + (uint8_t)(load * 40 / 100);        // buzz builds with load
-      strong = (uint8_t)(load * 200 / 100);            // load -> up to ~200
+      bool beat = (millis() % 420) < 160;                         // parked idle lope
+      trkW = beat ? 110 : 26;
+      trkS = beat ? 60 : 0;
     }
-    if (strain) { weak = 60; strong = 255; }           // sustained strain = full bump
+
+    weak   = (uint8_t)constrain(max(hydW, trkW), 0, 255);
+    strong = (uint8_t)constrain(max(hydS, trkS), 0, 255);
+    if (strain) { weak = 60; strong = 255; }                       // sustained strain = full bump
   }
-  gpController->playDualRumble(0, 160, weak, strong); // duration > refresh -> continuous
+  gpController->playDualRumble(0, 90, weak, strong); // duration > refresh -> continuous
 #endif
 }
 #endif // GAMEPAD_MODE
@@ -2240,6 +2251,18 @@ void loop() {
 #endif
 
   loadModel();         // total pump demand → governor bog (must run after the sound set above)
+
+  // Power the DAC channels down while the engine is fully OFF so the amp isn't fed a live (noisy)
+  // mid-level — kills the idle hiss. Re-enable the instant it leaves OFF (starting).
+  {
+    static bool dacOn = true;
+    bool want = (engineState != OFF);
+    if (want != dacOn) {
+      if (want) { dac_output_enable(DAC_CHANNEL_1); dac_output_enable(DAC_CHANNEL_2); }
+      else      { dac_output_disable(DAC_CHANNEL_1); dac_output_disable(DAC_CHANNEL_2); }
+      dacOn = want;
+    }
+  }
 
   // Servo output
   mcpwmOutput();
