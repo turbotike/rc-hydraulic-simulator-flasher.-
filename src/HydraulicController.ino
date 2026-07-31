@@ -618,19 +618,22 @@ void IRAM_ATTR fixedPlaybackTimer() {
 
   // (Hydraulic-flow / relief voice removed — no squeal/static when working the blade.)
 
-  // Track rattle (continuous)
+  // Track rattle (continuous). Rate scales with track speed (~38% crawl → slider ceiling at full
+  // pace), INTERPOLATED between samples so changing the rate doesn't alias into static/buzz.
   if (tracksAreRotating) {
-    if (curTrackRattleSample >= trackRattleSampleCount) curTrackRattleSample = 0;
-    c2 = (trackRattleSamples[curTrackRattleSample] * trackRattleVolumePercentage / 100 * trackRattleVolume / 100);
-    // Playback rate scales with track speed, like the demo: ~38% at a crawl → the ceiling (slider)
-    // at full pace. trackRattleVolume (0..100) is the speed proxy.
     int32_t lo = 38, hi = (trackRattleSpeedPercent > lo) ? trackRattleSpeedPercent : lo;
     int32_t spd = constrain((int32_t)trackRattleVolume, (int32_t)0, (int32_t)100);
-    uint32_t rate = (uint32_t)(lo + spd * (hi - lo) / 100);
-    static uint32_t trackRattleAcc = 0;
-    trackRattleAcc += rate;                              // fractional-rate resample (100 = native)
-    while (trackRattleAcc >= 100) { trackRattleAcc -= 100; curTrackRattleSample++; }
-    if (curTrackRattleSample >= trackRattleSampleCount) curTrackRattleSample = 0;
+    uint32_t rate = (uint32_t)(lo + spd * (hi - lo) / 100);       // % of native speed
+    static uint32_t trkPhase = 0;                                 // Q8 fixed-point index into the buffer
+    uint32_t idx = trkPhase >> 8, frac = trkPhase & 0xFF;
+    if (idx >= trackRattleSampleCount) { idx = 0; trkPhase = 0; }
+    int32_t s0 = trackRattleSamples[idx];
+    int32_t s1 = trackRattleSamples[(idx + 1 < trackRattleSampleCount) ? idx + 1 : 0];
+    int32_t interp = s0 + (s1 - s0) * (int32_t)frac / 256;        // linear interpolation → smooth
+    c2 = (interp * trackRattleVolumePercentage / 100 * trackRattleVolume / 100);
+    trkPhase += rate * 256 / 100;                                 // 100% = 1.0 sample/tick
+    if ((trkPhase >> 8) >= trackRattleSampleCount) trkPhase -= (uint32_t)trackRattleSampleCount << 8;
+    curTrackRattleSample = trkPhase >> 8;
   } else {
     curTrackRattleSample = 0; c2 = 0;
   }
@@ -1335,9 +1338,9 @@ void updateGamepadRumble() {
       bool beat = (millis() % period) < (period / 2);
       if (beat) { trkS = 70 + trkSpd * 120 / 100; trkW = 45; }    // thump strength grows with speed
     } else {
-      bool beat = (millis() % 420) < 160;                         // parked idle lope
-      trkW = beat ? 110 : 26;
-      trkS = beat ? 60 : 0;
+      bool beat = (millis() % 430) < 170;                         // parked idle lope — a bit more omph
+      trkW = beat ? 140 : 34;
+      trkS = beat ? 110 : 0;
     }
 
     weak   = (uint8_t)constrain(max(hydW, trkW), 0, 255);
