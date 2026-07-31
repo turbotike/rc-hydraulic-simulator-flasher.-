@@ -1289,10 +1289,9 @@ void loadModel() {
   totalFlowDemand = driveFlowDemand + implFlowDemand + digLoad; // governor reads this → engine bogs
 
   hydraulicFlowVolume = 0; // relief removed — the flow voice never plays
-
-  // Pump whine still follows drive load (augments the implement-driven pump from the control fn).
-  uint16_t drivePump = (uint16_t)constrain(driveFlowDemand, (int16_t)0, (int16_t)100);
-  if (hydraulicPumpVolume < drivePump) hydraulicPumpVolume = drivePump;
+  // NOTE: the pump-whine voice pitches with engine rpm, so feeding it the DRIVE flow made it scream
+  // high when you throttled up to drive (the "drive whine" static). Pump whine now stays implement-
+  // only (set in dozerControl); driving does NOT trigger it.
 }
 
 #if defined GAMEPAD_MODE
