@@ -28,7 +28,8 @@ const state = {
 };
 
 // ---------- dirty / toast ----------
-const isDirty = () => Object.values(state.changes).some((f) => Object.keys(f).length);
+let gpTouched = false; // Controls tab (gamepad config) has unsaved edits
+const isDirty = () => gpTouched || Object.values(state.changes).some((f) => Object.keys(f).length);
 const markDirty = () => { $("dirty").textContent = isDirty() ? "● unsaved changes" : ""; };
 function recordChange(file, name, payload) { (state.changes[file] ||= {})[name] = payload; markDirty(); }
 let toastTimer;
@@ -513,6 +514,9 @@ function wireGamepadPane() {
   fetch("/gamepad_config").then((r) => r.json()).then((j) => {
     if (!j.ok) { root.innerHTML = `<div class="empty">Couldn't load controls: ${esc(j.error || "")}</div>`; return; }
     gpCfg = j.config;
+    gpTouched = false;                       // freshly loaded — nothing to save yet
+    // Any input change in the Controls tab marks it dirty (saved by the top Save button).
+    root.addEventListener("change", () => { gpTouched = true; markDirty(); });
     buildGamepadUI(root);
   }).catch((e) => { root.innerHTML = `<div class="empty">Couldn't load controls: ${esc(e.message)}</div>`; });
 }
@@ -674,32 +678,11 @@ function buildGamepadUI(root) {
 
   // (Servo endpoints removed — this rig drives motors + hydraulic actuators, not travel-limited servos.)
 
-  // --- Save ---
-  const bar = el("div", "toolbar"); bar.style.marginTop = "18px";
-  const saveBtn = el("button", "primary", "💾 Save controls");
-  saveBtn.onclick = async () => {
-    saveBtn.disabled = true;
-    try {
-      const j = await post("/gamepad_config", c);
-      gpCfg = j.config || c;
-      toast(c.mode === "gamepad" ? "Saved. Flash to build the controller firmware." : "Saved. Flash to apply.", "ok");
-      buildGamepadUI(root);
-    } catch (e) { toast("Save failed: " + e.message, "err"); }
-    finally { saveBtn.disabled = false; }
-  };
-  const flashBtn = el("button", null, "⚡ Save & Flash");
-  flashBtn.onclick = async () => {
-    flashBtn.disabled = true;
-    try { await post("/gamepad_config", c); } catch (e) { toast("Save failed: " + e.message, "err"); flashBtn.disabled = false; return; }
-    flashBtn.disabled = false;
-    $("flashBtnTop").click();
-  };
-  bar.append(saveBtn, flashBtn);
-  root.appendChild(bar);
-  root.appendChild(el("p", "pane-sub",
+  // --- Save note (one Save button up top saves everything — no separate save here) ---
+  root.appendChild(el("p", "pane-sub", "Use the Save button at the top to save these controls along with the rest of your settings, then Flash. " + (
     c.mode === "gamepad"
       ? "Game-controller builds use the Bluepad32 ESP32 core (downloaded once on the first controller flash)."
-      : "Standard RC build — set-and-go, nothing to tune on the machine."));
+      : "Standard RC build — set-and-go, nothing to tune on the machine.")));
 }
 
 function render() {
@@ -715,19 +698,22 @@ function render() {
   }
 }
 
-// ---------- save ----------
+// ---------- save (one button saves EVERYTHING: schema tabs + Controls) ----------
 async function save() {
   if (!isDirty()) { toast("Nothing to save."); return true; }
-  const payload = {};
-  for (const [file, fields] of Object.entries(state.changes)) {
-    if (!Object.keys(fields).length) continue;
-    payload[file] = { ...fields };
-    if (file.startsWith("vehicles/")) payload[file].__vehicle__ = state.schema.currentVehicle;
-  }
   $("saveBtn").disabled = true;
   try {
-    await post("/save", payload);
-    toast("✓ Settings saved.", "ok");
+    // 1) Controls (gamepad) config, if the Controls tab was edited.
+    if (gpTouched && gpCfg) { await post("/gamepad_config", gpCfg); gpTouched = false; }
+    // 2) Machine / Levels / Sound changes.
+    const payload = {};
+    for (const [file, fields] of Object.entries(state.changes)) {
+      if (!Object.keys(fields).length) continue;
+      payload[file] = { ...fields };
+      if (file.startsWith("vehicles/")) payload[file].__vehicle__ = state.schema.currentVehicle;
+    }
+    if (Object.keys(payload).length) await post("/save", payload);
+    toast("✓ All settings saved.", "ok");
     await reloadKeepTab();
     return true;
   } catch (err) { toast("Save failed: " + err.message, "err"); return false; }
@@ -856,6 +842,7 @@ $("saveBtn").onclick = save;
 // board, and start flashing it. (Previously it only switched tabs, so clicking the
 // big obvious "Flash" button appeared to do nothing — "stuck", log never moved.)
 $("flashBtnTop").onclick = async () => {
+  if (isDirty()) { if (!(await save())) return; } // save everything (schema + controls) before flashing
   state.activeTab = FLASH; render();
   const sel = $("nativePort"), flashBtn = $("nativeFlash"), statusEl = $("status");
   if (!sel || !flashBtn || !statusEl) return;
