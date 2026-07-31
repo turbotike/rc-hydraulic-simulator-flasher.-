@@ -1591,44 +1591,14 @@ void craneControl() {
 
 #if defined DOZER_MODE
 void dozerControl() {
-  // ── Track rattle (from track stick movement) ──
-  static boolean trackLisRotating = false, trackRisRotating = false;
+  // ── Track rattle + reverse from the ACTUAL track speed (after the hydrostat droop), so the rattle
+  //    speeds up and slows with how fast the tracks are really moving — crawls at idle rpm, lugs down
+  //    under load — instead of jumping to full the instant you touch the stick. ──
+  int16_t trkSpd = (int16_t)constrain((abs((int)actualTrackL) + abs((int)actualTrackR)) / 10, 0, 100); // 0..100
+  tracksAreRotating = (trkSpd > 3);
+  trackRattleVolume = engineRunning ? (uint16_t)trkSpd : 0;
 
-  uint16_t trackLVol = 0;
-  if (pulseWidth[CH_DZ_TRACK_L] > pulseMaxNeutral[CH_DZ_TRACK_L]) {
-    trackLVol = map(pulseWidth[CH_DZ_TRACK_L], pulseMaxNeutral[CH_DZ_TRACK_L], pulseMax[CH_DZ_TRACK_L], 0, 100);
-    trackLisRotating = true;
-  } else if (pulseWidth[CH_DZ_TRACK_L] < pulseMinNeutral[CH_DZ_TRACK_L]) {
-    trackLVol = map(pulseWidth[CH_DZ_TRACK_L], pulseMinNeutral[CH_DZ_TRACK_L], pulseMin[CH_DZ_TRACK_L], 0, 100);
-    trackLisRotating = true;
-  } else {
-    trackLisRotating = false;
-  }
-
-  uint16_t trackRVol = 0;
-  if (pulseWidth[CH_DZ_TRACK_R] > pulseMaxNeutral[CH_DZ_TRACK_R]) {
-    trackRVol = map(pulseWidth[CH_DZ_TRACK_R], pulseMaxNeutral[CH_DZ_TRACK_R], pulseMax[CH_DZ_TRACK_R], 0, 100);
-    trackRisRotating = true;
-  } else if (pulseWidth[CH_DZ_TRACK_R] < pulseMinNeutral[CH_DZ_TRACK_R]) {
-    trackRVol = map(pulseWidth[CH_DZ_TRACK_R], pulseMinNeutral[CH_DZ_TRACK_R], pulseMin[CH_DZ_TRACK_R], 0, 100);
-    trackRisRotating = true;
-  } else {
-    trackRVol = 0;
-    trackRisRotating = false;
-  }
-
-  tracksAreRotating = trackLisRotating || trackRisRotating;
-  if (engineRunning) {
-    trackRattleVolume = constrain(trackLVol + trackRVol, 0, 100);
-  } else {
-    trackRattleVolume = 0;
-  }
-
-  // ── Dozer reverse detection (for travel alarm) ──
-  // Both tracks moving backward = reversing
-  boolean trackLreverse = (pulseWidth[CH_DZ_TRACK_L] < pulseMinNeutral[CH_DZ_TRACK_L]);
-  boolean trackRreverse = (pulseWidth[CH_DZ_TRACK_R] < pulseMinNeutral[CH_DZ_TRACK_R]);
-  escInReverse = trackLreverse && trackRreverse;
+  escInReverse = (actualTrackL < -20 && actualTrackR < -20); // both tracks driven backward
   escIsDriving = tracksAreRotating;
 
   // ── Implement pump volume from the actual valve commands (all 4: lift/tilt/angle/ripper) ──
