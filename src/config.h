@@ -296,11 +296,11 @@ volatile const uint16_t revSwitchPoint = 100;
 volatile const uint16_t idleEndPoint = 400;
 volatile const uint16_t idleVolumeProportionPercentage = 90;
 #ifdef REV_SOUND
-#include "sounds/CaterpillarD6DozerIdle2.h"
+#include "sounds/CaterpillarD6DozerIdle3.h"
 // Alias: auto-generated variable mapping
-const signed char* revSamples = caterpillarD6DozerIdle2Samples;
-const unsigned int revSampleCount = caterpillarD6DozerIdle2SampleCount;
-const unsigned int revSampleRate = caterpillarD6DozerIdle2SampleRate;
+const signed char* revSamples = caterpillarD6DozerIdle3Samples;
+const unsigned int revSampleCount = caterpillarD6DozerIdle3SampleCount;
+const unsigned int revSampleRate = caterpillarD6DozerIdle3SampleRate;
 #endif
 
 // --- Diesel knock ---

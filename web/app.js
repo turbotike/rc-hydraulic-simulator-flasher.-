@@ -397,11 +397,10 @@ async function openSoundModal(group) {
 }
 
 async function useLibrarySound(file, group) {
+  // The file already exists in the library — just assign it to this slot and save.
   try {
-    const j = await (await fetch("/sound_text/" + encodeURIComponent(file))).json();
-    if (!j.ok) throw new Error(j.error || "Could not read sound");
-    await post("/install_header", { filename: file, text: j.text, category: group.key });
-    closeModal(); toast("Installed " + file.replace(/\.h$/, ""), "ok");
+    await post("/save", { "config.h": { ["__sound__" + group.key]: { kind: "sound_choice", value: file } } });
+    closeModal(); toast(group.title + " → " + file.replace(/\.h$/, ""), "ok");
     await reloadKeepTab();
   } catch (e) { toast(e.message, "err"); }
 }
@@ -441,10 +440,13 @@ async function handleWavFile(file) {
     toast("Converting WAV…");
     audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
     const audio = await audioCtx.decodeAudioData(await file.arrayBuffer());
-    const text = wavToHeader(audio, group.varPrefix);
-    const base = file.name.replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9_-]/g, "_") || "customSound";
+    const base = file.name.replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9_]/g, "_") || "customSound";
+    // Unique array name per file (from the filename) so uploads never collide with another slot.
+    const prefix = base.replace(/[^A-Za-z0-9]/g, "") || "customSound";
+    const text = wavToHeader(audio, prefix.charAt(0).toLowerCase() + prefix.slice(1));
     await post("/install_header", { filename: base + ".h", text, category: group.key });
-    closeModal(); toast("Added " + base, "ok");
+    await post("/save", { "config.h": { ["__sound__" + group.key]: { kind: "sound_choice", value: base + ".h" } } });
+    closeModal(); toast("Added " + base + " → " + group.title, "ok");
     await reloadKeepTab();
   } catch (e) { toast("WAV import failed: " + e.message, "err"); }
 }
