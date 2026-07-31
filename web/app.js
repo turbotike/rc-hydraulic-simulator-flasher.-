@@ -369,13 +369,6 @@ function demoThrottle(t) { // crossfade idle→rev, spool the turbo, pitch up �
   if (demo.turboSrc) demo.turboSrc.playbackRate.setTargetAtTime(1.0 + t * 0.4, now, 0.12);
 }
 function demoBog(on) { if (demo) { demo.bog = on; demoThrottle(demo.throttle); } }
-function demoOneShot(slot, key, d) {
-  const f = slotFile(slot); if (!f) { toast("No sound set for that.", "err"); return; }
-  loadSoundBuffer(f).then((b) => {
-    const s = audioCtx.createBufferSource(); s.buffer = b;
-    const g = audioCtx.createGain(); g.gain.value = demoLvl(key, d != null ? d : 100) * demoMaster() * 2.4; g.connect(demoAudioBus()); s.connect(g); s.start();
-  }).catch(() => {});
-}
 function demoStop() {
   demoStopPump(); demoStopTracks(); demoStopRelief();
   if (demo) { try { demo.idleSrc.stop(); demo.revSrc.stop(); if (demo.turboSrc) demo.turboSrc.stop(); } catch (_) {} demo = null; }
@@ -481,12 +474,6 @@ function renderForgePane() {
       <strong style="min-width:90px">Throttle</strong>
       <input type="range" id="demoThr" min="0" max="100" step="1" value="0" disabled>
       <span class="val" id="demoThrVal">idle</span>
-    </div>
-    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:14px">
-      <button id="demoHorn" class="mini">📯 Horn</button>
-      <button id="demoRevBeep" class="mini">🔔 Reversing</button>
-      <button id="demoReliefBtn" class="mini">💥 Relief</button>
-      <button id="demoPumpBtn" class="mini">🔧 Pump (hold)</button>
     </div>`;
   pane.appendChild(demoCard);
 
@@ -698,12 +685,6 @@ function wireForgePane() {
     thr.disabled = true;
     demoAuto(setThr, (s) => { if (stageEl) stageEl.textContent = s; });
   };
-  $("demoHorn").onclick = () => demoOneShot("hornSound", "hornVolumePercentage", 140);
-  $("demoRevBeep").onclick = () => demoOneShot("reversingSound", "reversingVolumePercentage", 100);
-  $("demoReliefBtn").onclick = () => demoOneShot("hydraulicFlowSound", "hydraulicFlowVolumePercentage", 150);
-  const pb = $("demoPumpBtn");
-  pb.onmousedown = demoStartPump; pb.onmouseup = demoStopPump; pb.onmouseleave = demoStopPump;
-  pb.ontouchstart = (e) => { e.preventDefault(); demoStartPump(); }; pb.ontouchend = demoStopPump;
 }
 
 function renderFlashPane() {
