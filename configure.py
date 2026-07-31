@@ -1259,9 +1259,10 @@ def spa_schema():
     sounds = cfg.get("sounds", {}) or {}
     sopts = [{"file": s["file"], "label": s["label"]} for s in scan_all_sounds()]
     # Swappable engine/effect sounds. Diesel knock is disabled (not listed).
+    # (Relief squeal / hydraulicFlowSound stays LOCKED — not listed here.)
     slot_titles = [("startSound", "Engine start"), ("idleSound", "Engine idle"),
                    ("revSound", "Engine rev"), ("turboSound", "Turbo"),
-                   ("hydraulicPumpSound", "Hydraulic pump whine"), ("hydraulicFlowSound", "Relief squeal"),
+                   ("hydraulicPumpSound", "Hydraulic pump whine"),
                    ("trackRattleSound", "Track rattle"), ("bucketRattleSound", "Bucket rattle"),
                    ("hornSound", "Horn"), ("reversingSound", "Reversing beep")]
     # Each slot's dropdown shows only sounds that fit it (by filename keyword). (include, exclude)
