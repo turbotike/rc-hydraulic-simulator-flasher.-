@@ -1013,11 +1013,9 @@ void engineMassSimulation() {
                           0, max((int16_t)1, pumpFlowCapacity), 0, maxSagRpm);
   if (rpmSag < targetSag)      { rpmSag += sagAttack;   if (rpmSag > targetSag) rpmSag = targetSag; }
   else if (rpmSag > targetSag) { rpmSag -= sagRecovery; if (rpmSag < targetSag) rpmSag = targetSag; }
-  // Driving revs the engine: rpm follows whichever is higher — the hand-throttle or how hard you're
-  // driving — so the engine note and the track speed rise together (the droop then paces tracks to rpm).
-  int16_t driveDemand = (int16_t)((abs(swashL) + abs(swashR)) / 2); // 0..500 from the drive command
-  int16_t rpmBase = max((int16_t)currentThrottle, driveDemand);
-  targetRpm = constrain((int32_t)rpmBase - rpmSag, 0, 500);
+  // Engine rpm = your THROTTLE setting (minus load sag). rpm is the pump's flow rate; the drive stick
+  // is the swashplate displacement — track speed = flow = rpm × displacement (done in hydrostaticModel).
+  targetRpm = constrain((int32_t)currentThrottle - rpmSag, 0, 500);
   engineLugging = (currentRpm < lugRpmThreshold && totalFlowDemand > pumpFlowCapacity / 2);
 
 #elif defined EXCAVATOR_MODE || defined BACKHOE_MODE
@@ -1221,11 +1219,12 @@ void hydrostaticModel() {
 #if MACHINE_TRACKED
   swashL = rampToward(swashL, cmdTrackL, swashAccelRate, swashDecelRate);
   swashR = rampToward(swashR, cmdTrackR, swashAccelRate, swashDecelRate);
-  // Track speed follows rpm: since driving now revs the engine, low drive = low rpm = crawl, and it
-  // builds toward full speed as the engine comes up (and it stalls toward idle rpm).
-  int32_t droop = constrain((int32_t)currentRpm * 100 / max((int16_t)1, driveDroopRefRpm), 0, 100);
-  actualTrackL = swashL * droop / 100; // tracks slow as the engine bogs, recover as rpm returns
-  actualTrackR = swashR * droop / 100;
+  // Pump flow model: track speed = swashplate displacement (swash) × engine rpm fraction. rpm is the
+  // flow RATE, swash is the displacement — so at idle rpm even full stick is a crawl, and it speeds up
+  // as you throttle up. Under load rpm sags → flow drops → tracks slow (the bog).
+  int32_t rpmFrac = constrain((int32_t)currentRpm * 100 / max((int16_t)1, driveDroopRefRpm), 0, 100);
+  actualTrackL = swashL * rpmFrac / 100;
+  actualTrackR = swashR * rpmFrac / 100;
   driveFlowDemand = (int16_t)(((int32_t)abs(swashL) + abs(swashR)) * driveFlowWeight / 1000);
 #else
   // Wheeled: drive motor gets an accel/decel ramp; the steer servo passes straight through.
