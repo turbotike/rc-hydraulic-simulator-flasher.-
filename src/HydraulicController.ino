@@ -448,8 +448,11 @@ void IRAM_ATTR variablePlaybackTimer() {
     break;
   }
 
-  // Mix & output to DAC1
-  uint8_t value = constrain(((a * 8 / 10) + (b / 2) + (c / 5) + (d / 5) + (e / 5) + f + g) * masterVolume / 100 + dacOffset, 0, 255);
+  // Mix & output to DAC1. Engine fully OFF → output just the offset (clean silence); otherwise the
+  // frozen/stale voices sit on the DAC and buzz.
+  uint8_t value = (engineState == OFF)
+    ? dacOffset
+    : constrain(((a * 8 / 10) + (b / 2) + (c / 5) + (d / 5) + (e / 5) + f + g) * masterVolume / 100 + dacOffset, 0, 255);
   SET_PERI_REG_BITS(RTC_IO_PAD_DAC1_REG, RTC_IO_PDAC1_DAC, value, RTC_IO_PDAC1_DAC_S);
 }
 
@@ -658,7 +661,10 @@ void IRAM_ATTR fixedPlaybackTimer() {
   c = c1 + c2 + c3 + c4;
   d = d1 + d2;
 
-  uint8_t value = constrain(((a * 8 / 10) + (b * 2 / 10) + c + d) * masterVolume / 100 + dacOffset, 0, 255);
+  // Engine fully OFF → mute the aux DAC too, so frozen/looping voices don't buzz at idle.
+  uint8_t value = (engineState == OFF)
+    ? dacOffset
+    : constrain(((a * 8 / 10) + (b * 2 / 10) + c + d) * masterVolume / 100 + dacOffset, 0, 255);
   SET_PERI_REG_BITS(RTC_IO_PAD_DAC2_REG, RTC_IO_PDAC2_DAC, value, RTC_IO_PDAC2_DAC_S);
 }
 
