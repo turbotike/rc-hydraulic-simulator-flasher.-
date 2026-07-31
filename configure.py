@@ -425,7 +425,7 @@ def write_config(cfg):
         "escBrakeSteps", "escAccelerationSteps",
         "hydraulicRampTime", "hydraulicDeadZone",
         "autoIdleDelayMs", "driveExpo", "hydrostaticWhineVolumePercentage",
-        "trackRattleSpeedPercent", "reversingBeepMode", "driveIdleCreepPercent",
+        "reversingBeepMode", "driveIdleCreepPercent",
         "masterVolume", "indicatorOn",
         "hiLoRatioPercent",
         # Channel mapping
@@ -1255,9 +1255,6 @@ def spa_schema():
         sel("reversingBeepMode", "Reversing beeper", str(cfg.get("reversingBeepMode", 1)),
             [("1", "Reverse only"), ("2", "Forward + reverse"), ("0", "Off")],
             "The backup beeper: off, only when backing up, or whenever the machine moves."),
-        sld("trackRattleSpeedPercent", "Track rattle speed", cfg.get("trackRattleSpeedPercent", 60),
-            40, 150, 5, "%", "Top rattle speed at full track pace; it eases down to a slower crawl "
-            "rattle like the demo. 100 = native pitch, lower = slower/deeper."),
         sld("driveIdleCreepPercent", "Idle creep", cfg.get("driveIdleCreepPercent", 28),
             0, 70, 2, "%", "How much the tracks still move at idle throttle. 0 = fully stalls at idle; "
             "higher = it creeps without touching the throttle."),

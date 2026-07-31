@@ -622,7 +622,9 @@ void IRAM_ATTR fixedPlaybackTimer() {
   // Track rattle (continuous). Rate scales with track speed (~38% crawl → slider ceiling at full
   // pace), INTERPOLATED between samples so changing the rate doesn't alias into static/buzz.
   if (tracksAreRotating) {
-    int32_t lo = 38, hi = (trackRattleSpeedPercent > lo) ? trackRattleSpeedPercent : lo;
+    // Rate follows the ACTUAL track speed (which follows engine rpm × swash): ~38% crawl → ~120% at
+    // full motor speed. No slider — the top just IS whatever the motor is actually doing.
+    int32_t lo = 38, hi = 120;
     int32_t spd = constrain((int32_t)trackRattleVolume, (int32_t)0, (int32_t)100);
     uint32_t rate = (uint32_t)(lo + spd * (hi - lo) / 100);       // % of native speed
     static uint32_t trkPhase = 0;                                 // Q8 fixed-point index into the buffer

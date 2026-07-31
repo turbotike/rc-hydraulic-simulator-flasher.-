@@ -401,7 +401,6 @@ const unsigned int hydraulicFlowSampleRate = reliefSquealSampleRate;
 
 // --- Track rattle ---
 volatile int trackRattleVolumePercentage = 110;  // >~130 clips the DAC (harsh distortion) with the whine
-int16_t trackRattleSpeedPercent = 120;  // top rattle speed at full pace (100 = native; higher = faster clatter)
 #include "sounds/D6TrackRattle.h"
 // Alias: auto-generated variable mapping
 const signed char* trackRattleSamples = trackRattle2Samples;
