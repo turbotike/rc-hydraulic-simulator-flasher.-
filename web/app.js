@@ -336,12 +336,12 @@ function demoLoopStop(nodeRef) {
   try { n.g.gain.setTargetAtTime(0, audioCtx.currentTime, 0.12); setTimeout(() => { try { n.src.stop(); } catch (_) {} }, 300); } catch (_) {}
 }
 const demoTrackRef = { n: null }, demoPumpRef = { n: null }, demoReliefRef = { n: null };
-function demoStartTracks() { demoLoop(demoTrackRef, "trackRattleSound", demoLvl("trackRattleVolumePercentage", 100) * demoMaster(), 0.6); }
+function demoStartTracks() { demoLoop(demoTrackRef, "trackRattleSound", demoLvl("trackRattleVolumePercentage", 100) * demoMaster(), 0.4); }
 function demoStopTracks() { demoLoopStop(demoTrackRef); }
 // Speed the track rattle up/down with machine movement (0 = stopped, 1 = full pace).
 function demoTrackRate(speed) {
   if (!demoTrackRef.n) return;
-  const r = 0.55 + Math.max(0, Math.min(1, speed)) * 0.85; // ~0.55 crawling → ~1.4 full pace
+  const r = 0.38 + Math.max(0, Math.min(1, speed)) * 0.4; // ~0.38 crawling → ~0.78 full pace
   const g = demoLvl("trackRattleVolumePercentage", 100) * demoMaster() * (0.5 + 0.5 * Math.max(0, Math.min(1, speed)));
   try { demoTrackRef.n.src.playbackRate.setTargetAtTime(r, audioCtx.currentTime, 0.2); } catch (_) {}
   try { demoTrackRef.n.g.gain.setTargetAtTime(g, audioCtx.currentTime, 0.2); } catch (_) {}
