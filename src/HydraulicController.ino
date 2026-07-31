@@ -2216,6 +2216,7 @@ void loop() {
   // Read RC (or the gamepad — it fills the same channels)
 #if defined GAMEPAD_MODE
   readGamepadCommands();
+  gamepadRepairCheck();   // hold BOOT ~3s to forget bonds and re-pair a new controller
 #else
   readSbusCommands();
   readIbusCommands();

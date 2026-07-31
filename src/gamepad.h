@@ -143,21 +143,13 @@ extern uint16_t pulseWidthRaw[]; // channel array (declared in the .ino); CH_* i
 
 ControllerPtr gpController = nullptr;
 volatile bool gamepadConnected = false;
-static Preferences gpPrefs;      // remembers whether we've ever paired (namespace "chmap", key "btok")
-static bool gpBondSaved = false;
+#define GP_REPAIR_PIN 0   // BOOT button — hold ~3s while running to forget bonds and re-pair
 
 static void gpOnConnect(ControllerPtr ctl)
 {
   gpController = ctl;
   gamepadConnected = true;
   Serial.printf("Gamepad connected: %s\n", ctl->getModelName().c_str());
-  // Mark that we now have a good bond so we DON'T wipe keys on future boots (keeps auto-reconnect).
-  if (!gpBondSaved) {
-    gpPrefs.begin("chmap", false);
-    gpPrefs.putBool("btok", true);
-    gpPrefs.end();
-    gpBondSaved = true;
-  }
 }
 static void gpOnDisconnect(ControllerPtr ctl)
 {
@@ -177,18 +169,28 @@ void setupGamepad()
   BP32.setup(&gpOnConnect, &gpOnDisconnect);
   BP32.enableVirtualDevice(false);
   BP32.enableNewBluetoothConnections(true);   // accept a controller that's in pairing mode
+  pinMode(GP_REPAIR_PIN, INPUT_PULLUP);        // BOOT button = hold to re-pair a new controller
 
-  // First boot after flashing (or any boot before a controller has ever paired): clear stale bonds
-  // so a fresh controller in pairing mode can bind. Once one connects, gpOnConnect sets "btok" and
-  // we stop wiping — so a paired controller auto-reconnects on later boots.
-  gpPrefs.begin("chmap", true);
-  bool haveBond = gpPrefs.getBool("btok", false);
-  gpPrefs.end();
-  if (!haveBond) {
-    BP32.forgetBluetoothKeys();
-    Serial.println("No prior pairing — cleared old Bluetooth bonds.");
+  // Bonds are KEPT across power cycles, so a controller you've paired once auto-reconnects the moment
+  // it powers on (tap PS) — no re-pairing. To pair a DIFFERENT controller, hold BOOT ~3s while running.
+  Serial.println("Ready — tap PS on your paired controller, or hold BOOT ~3s to pair a new one.");
+}
+
+// Hold the BOOT button (~3s) while running to wipe bonds and restart into pairing mode.
+void gamepadRepairCheck()
+{
+  static uint32_t downSince = 0;
+  if (digitalRead(GP_REPAIR_PIN) == LOW) {
+    if (downSince == 0) downSince = millis();
+    else if (millis() - downSince > 3000) {
+      Serial.println("Re-pair: forgetting Bluetooth bonds, restarting…");
+      BP32.forgetBluetoothKeys();
+      delay(200);
+      ESP.restart();
+    }
+  } else {
+    downSince = 0;
   }
-  Serial.println("Put your controller in pairing mode to connect...");
 }
 
 // signed analog (-range..range) -> 1000..2000us (1500 center), with deadzone
