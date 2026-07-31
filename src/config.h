@@ -282,11 +282,11 @@ volatile int startVolumePercentage = 140;
 volatile int idleVolumePercentage = 80;
 volatile int engineIdleVolumePercentage = 80;
 volatile int fullThrottleVolumePercentage = 140;
-#include "sounds/idle.h"
+#include "sounds/CaterpillarD6DozerIdle.h"
 // Alias: auto-generated variable mapping
-const signed char* samples = idle;
-const unsigned int sampleCount = idle_sampleCount;
-const unsigned int sampleRate = idle_sampleRate;
+const signed char* samples = caterpillarD6DozerIdleSamples;
+const unsigned int sampleCount = caterpillarD6DozerIdleSampleCount;
+const unsigned int sampleRate = caterpillarD6DozerIdleSampleRate;
 
 // --- Rev sound ---
 #define REV_SOUND
@@ -296,11 +296,11 @@ volatile const uint16_t revSwitchPoint = 100;
 volatile const uint16_t idleEndPoint = 400;
 volatile const uint16_t idleVolumeProportionPercentage = 90;
 #ifdef REV_SOUND
-#include "sounds/idle.h"
+#include "sounds/CaterpillarD6DozerIdle2.h"
 // Alias: auto-generated variable mapping
-const signed char* revSamples = idle;
-const unsigned int revSampleCount = idle_sampleCount;
-const unsigned int revSampleRate = idle_sampleRate;
+const signed char* revSamples = caterpillarD6DozerIdle2Samples;
+const unsigned int revSampleCount = caterpillarD6DozerIdle2SampleCount;
+const unsigned int revSampleRate = caterpillarD6DozerIdle2SampleRate;
 #endif
 
 // --- Diesel knock ---

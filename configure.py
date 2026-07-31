@@ -1768,6 +1768,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
 
+        elif path == "/delete_sound":  # SPA: delete a sound file (refuses if it's in use)
+            try:
+                fn = os.path.basename(json.loads(body).get("filename", ""))
+                if not re.match(r'^[A-Za-z0-9_]+\.h$', fn):
+                    self._json({"ok": False, "error": "Invalid filename"}, 400); return
+                in_use = [k[:-5] for k, v in (read_config().get("sounds") or {}).items() if v == fn]
+                if in_use:
+                    self._json({"ok": False, "error": "That sound is in use (" + ", ".join(in_use)
+                                + "). Pick another for that slot first."}, 409); return
+                fpath = os.path.join(SOUNDS_DIR, fn)
+                if not os.path.isfile(fpath):
+                    self._json({"ok": False, "error": "File not found"}, 404); return
+                os.remove(fpath)
+                self._json({"ok": True, "file": fn})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
         elif path == "/api/delete_sound":
             try:
                 data = json.loads(body)

@@ -2,9 +2,9 @@
 // Loop region: 0.021s - 0.139s
 // Export speed: 0.75x
 #pragma once
-const unsigned int sampleRate = 22050;
-const unsigned int sampleCount = 3492;
-const signed char samples[] = {
+const unsigned int caterpillarD6DozerIdle2SampleRate = 22050;
+const unsigned int caterpillarD6DozerIdle2SampleCount = 3492;
+const signed char caterpillarD6DozerIdle2Samples[] = {
   39, 27, 19, 14, 11, 10, 10, 14, 24, 36, 46, 53, 57, 53, 47, 41, 37, 38, 39, 38, 
   36, 32, 29, 26, 24, 19, 12, 4, -4, -15, -24, -30, -33, -29, -29, -33, -40, -41, -41, -40, 
   -39, -32, -20, -4, 16, 21, 22, 23, 24, 26, 24, 20, 16, 16, -6, -15, -24, -25, -23, -21, 

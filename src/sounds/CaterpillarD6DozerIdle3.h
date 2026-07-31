@@ -1,9 +1,9 @@
 // Exported from Sound Browser — customIdle.h
 // Loop region: 0.000s - 1.792s
 #pragma once
-const unsigned int sampleRate = 22050;
-const unsigned int sampleCount = 39507;
-const signed char samples[] = {
+const unsigned int caterpillarD6DozerIdle3SampleRate = 22050;
+const unsigned int caterpillarD6DozerIdle3SampleCount = 39507;
+const signed char caterpillarD6DozerIdle3Samples[] = {
   21, 18, 18, 23, 29, 26, 19, 21, 24, 18, 7, 1, -1, -3, 3, 4, 3, 4, 7, 11, 
   15, 23, 32, 37, 36, 32, 30, 28, 27, 25, 18, 18, 21, 24, 28, 35, 36, 36, 41, 43, 
   36, 33, 31, 27, 22, 16, 11, 11, 18, 19, 18, 13, 9, 9, 9, 9, 7, 8, 8, 7, 

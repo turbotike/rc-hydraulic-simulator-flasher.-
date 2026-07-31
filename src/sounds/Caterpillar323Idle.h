@@ -1,7 +1,7 @@
 #pragma once
-const unsigned int sampleRate = 22050;
-const unsigned int sampleCount = 3136;
-const signed char samples[] = {//0
+const unsigned int caterpillar323IdleSampleRate = 22050;
+const unsigned int caterpillar323IdleSampleCount = 3136;
+const signed char caterpillar323IdleSamples[] = {//0
 0, 3, 6, 8, 9, 10, 11, 13, 17, 20, 23, 26, 28, 27, 27, 25, //16
 22, 19, 17, 16, 17, 19, 22, 29, 33, 39, 43, 49, 54, 60, 62, 63, //32
 63, 62, 61, 59, 56, 53, 48, 43, 36, 33, 31, 30, 30, 31, 36, 41, //48

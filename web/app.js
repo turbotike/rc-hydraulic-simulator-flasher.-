@@ -376,7 +376,17 @@ async function openSoundModal(group) {
       if (s.category && s.category !== "other") row.appendChild(el("span", "tag", esc(s.category)));
       const play = el("button", "mini", "▶"); play.onclick = () => previewSound(s.file);
       const use = el("button", "mini primary", "Use"); use.onclick = () => useLibrarySound(s.file, group);
-      row.append(play, use);
+      const del = el("button", "mini", "🗑"); del.title = "Delete this sound file";
+      del.onclick = async () => {
+        if (!confirm("Delete " + s.label + " permanently?")) return;
+        try {
+          await post("/delete_sound", { filename: s.file });
+          const i = all.indexOf(s); if (i >= 0) all.splice(i, 1);
+          allSoundsCache = null; // invalidate the shared cache
+          toast("Deleted " + s.label, "ok"); renderList();
+        } catch (e) { toast(e.message, "err"); }
+      };
+      row.append(play, use, del);
       list.appendChild(row);
     }
     if (items.length > 150) list.appendChild(el("div", "hint-row", "Showing first 150 — type to narrow it down."));
