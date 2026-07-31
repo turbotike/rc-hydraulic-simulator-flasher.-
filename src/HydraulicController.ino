@@ -2261,6 +2261,19 @@ void loop() {
   updateGamepadRumble(); // engine-feel haptics (only if GP_RUMBLE)
 #endif
 
+  // TEMP drive-chain readout (open Serial Monitor @115200): shows throttle, rpm, the droop %, the
+  // raw drive command (swR) and the droop-applied track output (actR). If actR tracks droop, the
+  // tracks ARE rpm-gated in firmware and the flatness is downstream (ESC/motor).
+  {
+    static uint32_t dbgMs = 0;
+    if (millis() - dbgMs > 400) {
+      dbgMs = millis();
+      int dr = constrain((int)currentRpm * 100 / max((int16_t)1, driveDroopRefRpm), 0, 100);
+      Serial.printf("THR=%d  RPM=%d  droop=%d%%  swR=%d  actR=%d\n",
+                    (int)currentThrottle, (int)currentRpm, dr, (int)swashR, (int)actualTrackR);
+    }
+  }
+
 #ifdef DEBUG_RC
   static unsigned long lastDebug = millis();
   if (millis() - lastDebug > 500) {
