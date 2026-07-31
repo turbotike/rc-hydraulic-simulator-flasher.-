@@ -1264,7 +1264,33 @@ def spa_schema():
                    ("revSound", "Engine rev"), ("turboSound", "Turbo"),
                    ("trackRattleSound", "Track rattle"), ("bucketRattleSound", "Bucket rattle"),
                    ("hornSound", "Horn"), ("reversingSound", "Reversing beep")]
-    sound_choices = [{"key": slot, "title": title, "options": sopts,
+    # Each slot's dropdown shows only sounds that fit it (by filename keyword). (include, exclude)
+    slot_filters = {
+        "startSound":        (("start", "crank"), ()),
+        "idleSound":         (("idle",), ()),
+        "revSound":          (("rev",), ("revers", "beep")),  # "rev" but not "reversing"
+        "turboSound":        (("turbo", "whistle", "charger", "wastegate", "blow"), ()),
+        "trackRattleSound":  (("track",), ()),
+        "bucketRattleSound": (("bucket",), ()),
+        "hornSound":         (("horn",), ()),
+        "reversingSound":    (("revers", "beep"), ()),
+    }
+
+    def slot_opts(slot, selected):
+        f = slot_filters.get(slot)
+        if not f:
+            return sopts
+        incl, excl = f
+        out = [o for o in sopts
+               if any(k in o["file"].lower() for k in incl)
+               and not any(x in o["file"].lower() for x in excl)]
+        if selected and not any(o["file"] == selected for o in out):  # always keep the current pick
+            sel = next((o for o in sopts if o["file"] == selected), None)
+            if sel:
+                out = [sel] + out
+        return out or sopts  # if nothing matched, fall back to the whole library
+
+    sound_choices = [{"key": slot, "title": title, "options": slot_opts(slot, sounds.get(slot)),
                       "selected": sounds.get(slot), "category": "", "varPrefix": ""}
                      for slot, title in slot_titles if sounds.get(slot)]
 
