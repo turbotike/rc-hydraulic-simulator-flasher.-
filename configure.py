@@ -424,7 +424,7 @@ def write_config(cfg):
         "escRampTimeLow", "escRampTimeHigh",
         "escBrakeSteps", "escAccelerationSteps",
         "hydraulicRampTime", "hydraulicDeadZone",
-        "autoIdleDelayMs",
+        "autoIdleDelayMs", "throttleExpo", "hydrostaticWhineVolumePercentage",
         "masterVolume", "indicatorOn",
         "hiLoRatioPercent",
         # Channel mapping
@@ -1203,7 +1203,8 @@ WEB_DIR = os.path.join(PROJECT_DIR, "web")
 CONSTRUCTION_LEVELS = [
     "startVolumePercentage", "idleVolumePercentage", "revVolumePercentage",
     "fullThrottleVolumePercentage", "turboVolumePercentage",
-    "hydraulicPumpVolumePercentage", "hydraulicFlowVolumePercentage",
+    "hydraulicPumpVolumePercentage", "hydrostaticWhineVolumePercentage",
+    "hydraulicFlowVolumePercentage",
     "trackRattleVolumePercentage", "bucketRattleVolumePercentage",
     "hornVolumePercentage", "reversingVolumePercentage",
 ]
@@ -1211,6 +1212,7 @@ CONSTRUCTION_LEVELS = [
 LEVEL_LABELS = {
     "hydraulicFlowVolumePercentage": "Relief squeal",   # flow voice is the relief cue now
     "hydraulicPumpVolumePercentage": "Hydraulic pump",
+    "hydrostaticWhineVolumePercentage": "Drive whine",
 }
 
 def spa_schema():
@@ -1252,6 +1254,9 @@ def spa_schema():
             "back to your set rpm the instant you move a stick or function."),
         sld("autoIdleDelayMs", "Idle-down delay", cfg.get("autoIdleDelayMs", 3000),
             500, 10000, 250, " ms", "How long with no input before it idles down."),
+        sld("throttleExpo", "Throttle expo", cfg.get("throttleExpo", 30),
+            0, 100, 5, "%", "Softens the low end of the throttle so small stick moves are gentle; "
+            "full throw still reaches max. 0 = linear."),
     ]}
 
     # Levels tab: only the volumes that matter on construction equipment. The engine sound packs

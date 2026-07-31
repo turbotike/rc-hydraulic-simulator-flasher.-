@@ -341,15 +341,15 @@ function demoLoopStop(nodeRef) {
 }
 const demoTrackRef = { n: null }, demoPumpRef = { n: null }, demoReliefRef = { n: null };
 
-// Hydrostatic drive whine — a synthesized transmission whine (pump/motor "sing") that rises in
-// pitch and swells with the swashplate. This is the drive sound; the pump loop is a separate thing.
+// Hydrostatic drive whine — a synthesized DEEP pump/motor "sing" that rises with the swashplate.
+// Two slightly-detuned sawtooths through a resonant LOWPASS: the moving resonant peak is the whine,
+// but it stays low and thick (not the thin octave-up siren). Level comes from the Levels tab.
 const demoWhine = { o1: null, o2: null, filt: null, g: null };
-let demoWhineVol = 1.0; // user slider (0..3), demo-only
 function demoStartWhine() {
   if (demoWhine.g || !audioCtx) return;
   const o1 = audioCtx.createOscillator(); o1.type = "sawtooth";
-  const o2 = audioCtx.createOscillator(); o2.type = "triangle"; // octave up = thin electric whine
-  const filt = audioCtx.createBiquadFilter(); filt.type = "bandpass"; filt.frequency.value = 1400; filt.Q.value = 4;
+  const o2 = audioCtx.createOscillator(); o2.type = "sawtooth"; o2.detune.value = 9; // thickness, not an octave
+  const filt = audioCtx.createBiquadFilter(); filt.type = "lowpass"; filt.frequency.value = 300; filt.Q.value = 7;
   const g = audioCtx.createGain(); g.gain.value = 0;
   o1.connect(filt); o2.connect(filt); filt.connect(g); g.connect(demoAudioBus());
   o1.start(); o2.start();
@@ -366,18 +366,15 @@ function demoStopWhine() {
 // load, when the tracks droop and slow, the whine holds up because the pump is still stroked hard.
 function demoSwash(amount) {
   const a = Math.max(0, Math.min(1, amount));
-  demoSwashLast = a;
   const w = demoWhine; if (!w.g) return;
   const now = audioCtx.currentTime;
-  const base = 240 + a * 560; // ~240Hz low stroke → ~800Hz full stroke
+  const base = 65 + a * 150;                                   // deep: ~65Hz low stroke → ~215Hz full stroke
+  const lvl = demoLvl("hydrostaticWhineVolumePercentage", 120);
   try { w.o1.frequency.setTargetAtTime(base, now, 0.18); } catch (_) {}
-  try { w.o2.frequency.setTargetAtTime(base * 2, now, 0.18); } catch (_) {}
-  try { w.filt.frequency.setTargetAtTime(600 + a * 1700, now, 0.18); } catch (_) {}
-  try { w.g.gain.setTargetAtTime(demoMaster() * (0.05 + 0.32 * a) * demoWhineVol, now, 0.2); } catch (_) {}
+  try { w.o2.frequency.setTargetAtTime(base, now, 0.18); } catch (_) {}
+  try { w.filt.frequency.setTargetAtTime(base * 3.0 + 90, now, 0.18); } catch (_) {} // resonant peak = the whine
+  try { w.g.gain.setTargetAtTime(demoMaster() * (0.06 + 0.34 * a) * lvl, now, 0.2); } catch (_) {}
 }
-// Re-apply the whine gain immediately when the slider moves (so you hear it change live).
-let demoSwashLast = 0;
-function demoSetWhineVol(mult) { demoWhineVol = Math.max(0, mult); if (demoWhine.g) demoSwash(demoSwashLast); }
 
 function demoStartTracks() { demoStartWhine(); demoLoop(demoTrackRef, "trackRattleSound", demoLvl("trackRattleVolumePercentage", 100) * demoMaster(), 0.4); }
 function demoStopTracks() { demoStopWhine(); demoLoopStop(demoTrackRef); }
@@ -513,13 +510,7 @@ function renderForgePane() {
       <strong style="min-width:90px">Throttle</strong>
       <input type="range" id="demoThr" min="0" max="100" step="1" value="0" disabled>
       <span class="val" id="demoThrVal">idle</span>
-    </div>
-    <div class="row" style="margin-top:10px">
-      <strong style="min-width:90px">Drive whine</strong>
-      <input type="range" id="demoWhineVol" min="0" max="300" step="5" value="100">
-      <span class="val" id="demoWhineVolVal">100%</span>
-    </div>
-    <p class="pane-sub" style="margin:4px 0 0">The hydrostatic drive "sing" — rises with the swashplate as it drives. Demo preview only.</p>`;
+    </div>`;
   pane.appendChild(demoCard);
 
   // Sound choosers
@@ -730,11 +721,6 @@ function wireForgePane() {
     thr.disabled = true;
     demoAuto(setThr, (s) => { if (stageEl) stageEl.textContent = s; });
   };
-  const wv = $("demoWhineVol"), wvVal = $("demoWhineVolVal");
-  if (wv) {
-    demoSetWhineVol(wv.value / 100);
-    wv.oninput = () => { wvVal.textContent = wv.value + "%"; demoSetWhineVol(wv.value / 100); };
-  }
 }
 
 function renderFlashPane() {

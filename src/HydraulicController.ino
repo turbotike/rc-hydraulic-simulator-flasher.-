@@ -869,6 +869,17 @@ void failsafeRcSignals() {
 // THROTTLE MAPPING
 // ════════════════════════════════════════════════════════════════
 
+// Expo curve: blend linear and cubic response. expoPct 0 = linear, 100 = full cubic.
+// v is a magnitude in [0, span]; small inputs are softened while full throw still reaches span.
+int16_t applyExpo(int16_t v, int16_t span, int16_t expoPct) {
+  if (expoPct <= 0 || span <= 0 || v <= 0) return v;
+  if (expoPct > 100) expoPct = 100;
+  float n = (float)v / (float)span;                 // 0..1
+  float e = (float)expoPct / 100.0f;
+  float out = n * (1.0f - e) + (n * n * n) * e;      // linear ↔ cubic blend
+  return (int16_t)(out * (float)span + 0.5f);
+}
+
 void mapThrottle() {
   static unsigned long lastFrame = millis();
   if (millis() - lastFrame < 4) return;
@@ -906,6 +917,9 @@ void mapThrottle() {
   }
   currentThrottle = constrain(currentThrottle, 0, 500);
 #endif
+
+  // ── Throttle expo: blend linear ↔ cubic so small stick moves are gentle, full throw still hits max ──
+  currentThrottle = applyExpo(currentThrottle, 500, throttleExpo);
 
   // ── Auto idle-down: drop to base idle when no function has been touched for a while,
   //    and snap straight back to commanded rpm the instant any function moves. ──

@@ -89,6 +89,9 @@ int16_t lugKnockBoost   = 40;  // extra engine strain when lugging
 boolean  autoIdleEnabled = true;  // true = idle down automatically when parked
 uint16_t autoIdleDelayMs = 3000;  // no-activity time before idling down (ms)
 
+// --- Throttle expo: softens the low end so small stick moves are gentle. 0 = linear, 100 = full cubic ---
+int16_t throttleExpo = 30;
+
 // --- Dig load (blade machines): inferred cutting resistance = blade down + driving forward.
 //     Not physics — a heuristic that loads the engine so pushing a lowered blade bogs it. ---
 int16_t digLoadGain     = 40;  // 0 = off. Low-moderate. Higher = the cut fights back harder.
@@ -384,10 +387,14 @@ volatile int couplingVolumePercentage = 100;
 
 // --- Hydraulic pump ---
 volatile int hydraulicPumpVolumePercentage = 65;
-#include "sounds/Caterpillar323Hydraulic2.h"
+#include "sounds/Caterpillar323Hydraulic3.h"
+
+// --- Hydrostatic drive whine ("sing") — the deep pump/motor whine that rises with the swashplate.
+//     Level lives here so the flasher Levels tab and demo can use it (demo synthesizes it today). ---
+volatile int hydrostaticWhineVolumePercentage = 120;
 
 // --- Hydraulic fluid flow ---
-volatile int hydraulicFlowVolumePercentage = 35;
+volatile int hydraulicFlowVolumePercentage = 75;
 #include "sounds/reliefSqueal.h"
 // Alias: auto-generated variable mapping
 const signed char* hydraulicFlowSamples = reliefSquealSamples;
@@ -397,7 +404,7 @@ const unsigned int hydraulicFlowSampleRate = reliefSquealSampleRate;
 
 // --- Track rattle ---
 volatile int trackRattleVolumePercentage = 300;
-#include "sounds/D6TrackRattle_100ms.h"
+#include "sounds/D6TrackRattle.h"
 // Alias: auto-generated variable mapping
 const signed char* trackRattleSamples = trackRattle2Samples;
 const unsigned int trackRattleSampleCount = trackRattle2SampleCount;
