@@ -1258,22 +1258,24 @@ def spa_schema():
     # Sound Forge choosers — construction-relevant slots only (no siren/coupler/gearshift/etc.).
     sounds = cfg.get("sounds", {}) or {}
     sopts = [{"file": s["file"], "label": s["label"]} for s in scan_all_sounds()]
-    # Swappable engine/effect sounds. Diesel knock is disabled; the hydraulic pump + flow(relief)
-    # sounds are LOCKED (fixed in config.h) so they're intentionally not listed here.
+    # Swappable engine/effect sounds. Diesel knock is disabled (not listed).
     slot_titles = [("startSound", "Engine start"), ("idleSound", "Engine idle"),
                    ("revSound", "Engine rev"), ("turboSound", "Turbo"),
+                   ("hydraulicPumpSound", "Hydraulic pump whine"), ("hydraulicFlowSound", "Relief squeal"),
                    ("trackRattleSound", "Track rattle"), ("bucketRattleSound", "Bucket rattle"),
                    ("hornSound", "Horn"), ("reversingSound", "Reversing beep")]
     # Each slot's dropdown shows only sounds that fit it (by filename keyword). (include, exclude)
     slot_filters = {
-        "startSound":        (("start", "crank"), ()),
-        "idleSound":         (("idle",), ()),
-        "revSound":          (("rev",), ("revers", "beep")),  # "rev" but not "reversing"
-        "turboSound":        (("turbo", "whistle", "charger", "wastegate", "blow"), ()),
-        "trackRattleSound":  (("track",), ()),
-        "bucketRattleSound": (("bucket",), ()),
-        "hornSound":         (("horn",), ()),
-        "reversingSound":    (("revers", "beep"), ()),
+        "startSound":         (("start", "crank"), ()),
+        "idleSound":          (("idle",), ()),
+        "revSound":           (("rev",), ("revers", "beep")),  # "rev" but not "reversing"
+        "turboSound":         (("turbo", "whistle", "charger", "wastegate", "blow"), ()),
+        "hydraulicPumpSound": (("hydraulic", "pump"), ("flow",)),
+        "hydraulicFlowSound": (("hydraulic", "flow", "relief", "squeal", "hiss"), ()),
+        "trackRattleSound":   (("track",), ()),
+        "bucketRattleSound":  (("bucket",), ()),
+        "hornSound":          (("horn",), ()),
+        "reversingSound":     (("revers", "beep"), ()),
     }
 
     def slot_opts(slot, selected):
