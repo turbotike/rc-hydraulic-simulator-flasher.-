@@ -335,41 +335,18 @@ function demoLoopStop(nodeRef) {
   const n = nodeRef.n; nodeRef.n = null;
   try { n.g.gain.setTargetAtTime(0, audioCtx.currentTime, 0.12); setTimeout(() => { try { n.src.stop(); } catch (_) {} }, 300); } catch (_) {}
 }
-const demoPumpRef = { n: null }, demoReliefRef = { n: null };
-// Track rattle, granular: overlapping envelope-faded grains read from random spots in the clip,
-// re-fired at NATIVE pitch. Faster machine = grains fire closer together = busier rattle (the real
-// "chain links passing faster" cue) — no pitch change, and the overlap + random offsets keep it a
-// smooth, natural rattle instead of a choppy, mechanical repeat.
-const demoTrk = { on: false, speed: 0.15, buf: null, timer: null };
-function demoStartTracks() {
-  if (demoTrk.on || !audioCtx) return;
-  const f = slotFile("trackRattleSound"); if (!f) return;
-  demoTrk.on = true; demoTrk.speed = 0.15;
-  loadSoundBuffer(f).then((b) => { demoTrk.buf = b; if (demoTrk.on) demoTrkTick(); })
-                    .catch(() => { demoTrk.on = false; });
+const demoTrackRef = { n: null }, demoPumpRef = { n: null }, demoReliefRef = { n: null };
+function demoStartTracks() { demoLoop(demoTrackRef, "trackRattleSound", demoLvl("trackRattleVolumePercentage", 100) * demoMaster(), 0.4); }
+function demoStopTracks() { demoLoopStop(demoTrackRef); }
+// Continuous rattle loop whose pace rides the machine speed (0 = crawling, 1 = full pace).
+function demoTrackRate(speed) {
+  if (!demoTrackRef.n) return;
+  const s = Math.max(0, Math.min(1, speed));
+  const r = 0.38 + s * 0.4; // ~0.38 crawling → ~0.78 full pace
+  const g = demoLvl("trackRattleVolumePercentage", 100) * demoMaster() * (0.5 + 0.5 * s);
+  try { demoTrackRef.n.src.playbackRate.setTargetAtTime(r, audioCtx.currentTime, 0.2); } catch (_) {}
+  try { demoTrackRef.n.g.gain.setTargetAtTime(g, audioCtx.currentTime, 0.2); } catch (_) {}
 }
-function demoTrkTick() {
-  const st = demoTrk; if (!st.on || !st.buf) return;
-  const sp = Math.max(0, Math.min(1, st.speed));
-  const now = audioCtx.currentTime, dur = st.buf.duration;
-  const grain = Math.min(0.5, dur), fade = 0.08;
-  const off = Math.max(0, Math.random() * (dur - grain));   // random read point = natural variation
-  const src = audioCtx.createBufferSource(); src.buffer = st.buf;
-  src.playbackRate.value = 0.99 + Math.random() * 0.02;      // native pitch (tiny wander only)
-  const g = audioCtx.createGain();
-  const v = demoLvl("trackRattleVolumePercentage", 100) * demoMaster() * (0.4 + 0.6 * sp);
-  g.gain.setValueAtTime(0, now);
-  g.gain.linearRampToValueAtTime(v, now + fade);
-  g.gain.setValueAtTime(v, now + grain - fade);
-  g.gain.linearRampToValueAtTime(0, now + grain);
-  src.connect(g); g.connect(demoAudioBus());
-  try { src.start(now, off, grain + 0.02); } catch (_) { try { src.start(); } catch (_) {} }
-  const interval = 0.12 + (1 - sp) * 0.22;                   // ~0.12s busy(fast) → ~0.34s calm(slow); < grain so grains overlap
-  st.timer = setTimeout(demoTrkTick, interval * 1000);
-}
-function demoStopTracks() { demoTrk.on = false; if (demoTrk.timer) { clearTimeout(demoTrk.timer); demoTrk.timer = null; } }
-// speed 0 = crawling, 1 = full pace — changes how busy the rattle is, not its pitch.
-function demoTrackRate(speed) { demoTrk.speed = Math.max(0, Math.min(1, speed)); }
 function demoStartPump(boost) { demoLoop(demoPumpRef, "hydraulicPumpSound", demoLvl("hydraulicPumpVolumePercentage", 100) * demoMaster() * (boost || 1)); }
 function demoStopPump() { demoLoopStop(demoPumpRef); }
 function demoStartRelief() { demoLoop(demoReliefRef, "hydraulicFlowSound", demoLvl("hydraulicFlowVolumePercentage", 150) * demoMaster() * 1.4, 0.62); }
