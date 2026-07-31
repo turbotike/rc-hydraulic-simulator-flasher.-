@@ -12,6 +12,21 @@ Based on [TheDIYGuy999's RC_Engine_Sound_ESP32](https://github.com/TheDIYGuy999/
 
 ---
 
+## 🛠️ It's a living hydraulic system — not just sound
+
+Most RC sound kits just play a clip when you nudge a stick. This one **simulates the machine's hydraulics and driveline**, so it *reacts* to what you're doing — the sound **and** the outputs change with the load, like the real thing. There are no sensors and no extra hardware: it reads what you're doing with the sticks and models the machine from there.
+
+- **Hydrostatic drive.** The tracks don't snap to speed — the swashplate ramps up like a real pump-and-motor, so it *builds* and eases off. Pull back into a turn and it counter-rotates (spins on the spot).
+- **It bogs under load.** Push hard, or work the hydraulics, and the engine **lugs** — RPM sags, the diesel digs in, and the tracks actually **slow down** as it strains, then recover as it catches its breath. Lower the throttle and RPM drops, so it drives slower — just like the real machine.
+- **Relief valve.** Run a cylinder to its end-stop, or ask for more than the pump can give, and the **relief cracks** — a squeal, heavier engine load, the works. That's the machine telling you it's maxed out.
+- **Dig load.** Drop the blade and drive forward and it works out that you're **cutting** — the deeper and harder you push, the more it fights back and bogs. Lift the blade and it clears.
+- **Proportional valves.** Blade, tilt and ripper move smoothly with a deadzone and ramp, and the pump whine rises with how much you're asking of it.
+- **You feel it, too.** On a game controller the rumble follows the engine — an idle purr, a swell under load, and a jolt the instant the relief pops.
+
+The result is a machine that feels like it has weight and power in reserve — and grunts when you put it to work. Fire it up, throttle on, drop the blade into a pile and *push* — and listen to it dig in.
+
+---
+
 ## Contents
 
 1. [What you need](#what-you-need)
