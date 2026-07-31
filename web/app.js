@@ -601,10 +601,10 @@ function buildGamepadUI(root) {
       sw.appendChild(inp); sw.appendChild(el("span", "slider-ui")); input.appendChild(sw);
       row.appendChild(input); return row;
     };
-    card.appendChild(toggle("Tank / dual-track mix", "tankmix",
-      "For tracked vehicles (tanks, dozers). Blends throttle + steering into two track signals — LEFT track on CH1, RIGHT track on CH2. Plug an ESC into each; trim them with the CH1/CH2 endpoints below."));
+    // (The old "Tank / dual-track mix" toggle was removed — the drive mode is set once on the
+    //  Machine tab ("Dozer drive"); the firmware always mixes off that, so this was a dead duplicate.)
     card.appendChild(toggle("Engine-feel rumble", "rumble",
-      "Feel the engine through the controller — idle purr, revs rise with throttle, a bump on each gear shift. Turn off to save controller battery. (PS4/PS5/Xbox.)"));
+      "Feel the engine through the controller — idle purr, load-follow, and a jolt when the relief cracks. Turn off to save controller battery. (PS4/PS5/Xbox.)"));
 
     // steering source
     const srow = el("div", "ctrl");
