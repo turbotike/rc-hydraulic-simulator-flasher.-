@@ -361,22 +361,24 @@ function demoStopWhine() {
   setTimeout(() => { try { o1.stop(); o2.stop(); } catch (_) {} }, 400);
   w.o1 = w.o2 = w.filt = w.g = null;
 }
-function demoWhineSpeed(s) {
+// Whine rides the SWASHPLATE (pump displacement / drive command), NOT the track speed — so under
+// load, when the tracks droop and slow, the whine holds up because the pump is still stroked hard.
+function demoSwash(amount) {
   const w = demoWhine; if (!w.g) return;
+  const a = Math.max(0, Math.min(1, amount));
   const now = audioCtx.currentTime;
-  const base = 240 + s * 560; // ~240Hz crawl → ~800Hz full pace
+  const base = 240 + a * 560; // ~240Hz low stroke → ~800Hz full stroke
   try { w.o1.frequency.setTargetAtTime(base, now, 0.18); } catch (_) {}
   try { w.o2.frequency.setTargetAtTime(base * 2, now, 0.18); } catch (_) {}
-  try { w.filt.frequency.setTargetAtTime(600 + s * 1700, now, 0.18); } catch (_) {}
-  try { w.g.gain.setTargetAtTime(demoMaster() * (0.03 + 0.15 * s), now, 0.2); } catch (_) {}
+  try { w.filt.frequency.setTargetAtTime(600 + a * 1700, now, 0.18); } catch (_) {}
+  try { w.g.gain.setTargetAtTime(demoMaster() * (0.03 + 0.15 * a), now, 0.2); } catch (_) {}
 }
 
 function demoStartTracks() { demoStartWhine(); demoLoop(demoTrackRef, "trackRattleSound", demoLvl("trackRattleVolumePercentage", 100) * demoMaster(), 0.4); }
 function demoStopTracks() { demoStopWhine(); demoLoopStop(demoTrackRef); }
-// Ride the drive whine + rattle pace with the machine speed (0 = crawling, 1 = full pace).
+// Rattle pace rides the actual track speed (0 = crawling, 1 = full pace) — droops under load.
 function demoTrackRate(speed) {
   const s = Math.max(0, Math.min(1, speed));
-  demoWhineSpeed(s);
   if (!demoTrackRef.n) return;
   const r = 0.38 + s * 0.22; // ~0.38 crawling → ~0.60 full pace (tamed top end)
   const g = demoLvl("trackRattleVolumePercentage", 100) * demoMaster() * (0.5 + 0.5 * s);
@@ -453,18 +455,18 @@ async function demoAuto(onThrottle, onStage) {
     if (!alive()) return;
     stage("🔧 Lowering the blade");    demoStartPump(); await sleep(1500);        // hydraulics engage
     if (!alive()) return;
-    stage("🚜 Driving forward");       demoStartTracks(); await glide(0.85, 1.0, 700);
-    await trackTo(0.3, 1.0, 900);                                                 // tracks pick up to full pace
+    stage("🚜 Driving forward");       demoStartTracks(); demoSwash(0.9); await glide(0.85, 1.0, 700);
+    await trackTo(0.3, 1.0, 900); demoSwash(1.0);                                 // swash strokes up, tracks pick up
     if (!alive()) return;
-    // Push into the pile — engine bogs, tracks slow under load, relief cracks and squeals.
+    // Push into the pile — swash stays stroked FULL (whine holds) but the tracks droop and slow.
     stage("💥 Digging in — she's bogging!");
-    demoStartRelief(); demoStartPump(1.6); demoBog(true);
-    await trackTo(1.0, 0.3, 1300);                                                // tracks lug down as it strains
+    demoStartRelief(); demoStartPump(1.6); demoBog(true); demoSwash(1.0);
+    await trackTo(1.0, 0.3, 1300);                                                // tracks lug down; whine holds up
     await sleep(1300);
     if (!alive()) return;
-    stage("😮‍💨 Pulling out");          demoBog(false); demoStopRelief(); demoStartPump(1.0);
+    stage("😮‍💨 Pulling out");          demoBog(false); demoStopRelief(); demoStartPump(1.0); demoSwash(1.0);
     await trackTo(0.3, 0.95, 1100);                                               // catches its breath, rolls on
-    stage("🛑 Stop");                  await trackTo(0.95, 0.2, 500); demoStopTracks(); await sleep(700);
+    stage("🛑 Stop");                  demoSwash(0); await trackTo(0.95, 0.2, 500); demoStopTracks(); await sleep(700);
     stage("🔻 Back to idle");          demoStopPump(); await glide(1.0, 0, 1500); if (onThrottle) onThrottle(0);
     await sleep(1400);
     stage("🔌 Shutting down");         await demoShutdown();
