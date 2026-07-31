@@ -349,7 +349,7 @@ function demoStartWhine() {
   if (demoWhine.g || !audioCtx) return;
   const o1 = audioCtx.createOscillator(); o1.type = "sawtooth";
   const o2 = audioCtx.createOscillator(); o2.type = "sawtooth"; o2.detune.value = 9; // thickness, not an octave
-  const filt = audioCtx.createBiquadFilter(); filt.type = "lowpass"; filt.frequency.value = 300; filt.Q.value = 7;
+  const filt = audioCtx.createBiquadFilter(); filt.type = "lowpass"; filt.frequency.value = 300; filt.Q.value = 10;
   const g = audioCtx.createGain(); g.gain.value = 0;
   o1.connect(filt); o2.connect(filt); filt.connect(g); g.connect(demoAudioBus());
   o1.start(); o2.start();
@@ -368,12 +368,13 @@ function demoSwash(amount) {
   const a = Math.max(0, Math.min(1, amount));
   const w = demoWhine; if (!w.g) return;
   const now = audioCtx.currentTime;
-  const base = 65 + a * 150;                                   // deep: ~65Hz low stroke → ~215Hz full stroke
+  const base = 90 + a * 410;                                   // spools ~90Hz low stroke → ~500Hz full stroke
   const lvl = demoLvl("hydrostaticWhineVolumePercentage", 120);
-  try { w.o1.frequency.setTargetAtTime(base, now, 0.18); } catch (_) {}
-  try { w.o2.frequency.setTargetAtTime(base, now, 0.18); } catch (_) {}
-  try { w.filt.frequency.setTargetAtTime(base * 3.0 + 90, now, 0.18); } catch (_) {} // resonant peak = the whine
-  try { w.g.gain.setTargetAtTime(demoMaster() * (0.06 + 0.34 * a) * lvl, now, 0.2); } catch (_) {}
+  // Slow frequency glide (~0.55s) = a flywheel winding up, like a radial engine inertia starter.
+  try { w.o1.frequency.setTargetAtTime(base, now, 0.55); } catch (_) {}
+  try { w.o2.frequency.setTargetAtTime(base, now, 0.55); } catch (_) {}
+  try { w.filt.frequency.setTargetAtTime(base * 3.2 + 110, now, 0.55); } catch (_) {} // resonant peak = the singing whine
+  try { w.g.gain.setTargetAtTime(demoMaster() * (0.06 + 0.34 * a) * lvl, now, 0.25); } catch (_) {}
 }
 
 function demoStartTracks() { demoStartWhine(); demoLoop(demoTrackRef, "trackRattleSound", demoLvl("trackRattleVolumePercentage", 100) * demoMaster(), 0.4); }

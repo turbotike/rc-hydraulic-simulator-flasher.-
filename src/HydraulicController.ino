@@ -880,6 +880,13 @@ int16_t applyExpo(int16_t v, int16_t span, int16_t expoPct) {
   return (int16_t)(out * (float)span + 0.5f);
 }
 
+// Signed expo for a centred axis (±span), e.g. the drive stick: softens around centre, keeps sign.
+int16_t expoSigned(int32_t v, int16_t span, int16_t expoPct) {
+  int16_t sign = (v < 0) ? -1 : 1;
+  int16_t mag = (int16_t)constrain((int32_t)labs(v), (int32_t)0, (int32_t)span);
+  return sign * applyExpo(mag, span, expoPct);
+}
+
 void mapThrottle() {
   static unsigned long lastFrame = millis();
   if (millis() - lastFrame < 4) return;
@@ -917,9 +924,6 @@ void mapThrottle() {
   }
   currentThrottle = constrain(currentThrottle, 0, 500);
 #endif
-
-  // ── Throttle expo: blend linear ↔ cubic so small stick moves are gentle, full throw still hits max ──
-  currentThrottle = applyExpo(currentThrottle, 500, throttleExpo);
 
   // ── Auto idle-down: drop to base idle when no function has been touched for a while,
   //    and snap straight back to commanded rpm the instant any function moves. ──
@@ -1179,9 +1183,10 @@ static int16_t rampToward(int16_t cur, int16_t target, int16_t accel, int16_t de
 void driveMixer() {
 #if MACHINE_TRACKED
   #if defined DOZER_MODE && defined DRIVE_SINGLE_STICK_MIX
-  // Dozer single-stick mix: one stick fwd/back + left/right, blended into both tracks.
-  int32_t drive = (int32_t)pulseWidth[CH_DZ_DRIVE] - 1500; // ±500
-  int32_t steer = (int32_t)pulseWidth[CH_DZ_STEER] - 1500;
+  // Dozer single-stick mix: one stick fwd/back + left/right, blended into both tracks. Expo on both
+  // axes of the drive stick so small moves are gentle for fine control.
+  int32_t drive = expoSigned((int32_t)pulseWidth[CH_DZ_DRIVE] - 1500, 500, driveExpo); // ±500
+  int32_t steer = expoSigned((int32_t)pulseWidth[CH_DZ_STEER] - 1500, 500, driveExpo);
   int32_t l = drive + steer;
   int32_t r = drive - steer;
   int32_t m = max(labs(l), labs(r));
@@ -1193,14 +1198,14 @@ void driveMixer() {
   cmdTrackL = l;
   cmdTrackR = r;
   #else // dual-track: one channel per track (excavator, skid steer, dozer dual-stick)
-  cmdTrackL = (int16_t)pulseWidth[outDriveL] - 1500;
-  cmdTrackR = (int16_t)pulseWidth[outDriveR] - 1500;
+  cmdTrackL = expoSigned((int32_t)pulseWidth[outDriveL] - 1500, 500, driveExpo);
+  cmdTrackR = expoSigned((int32_t)pulseWidth[outDriveR] - 1500, 500, driveExpo);
   #endif
   if (!engineRunning) { cmdTrackL = 0; cmdTrackR = 0; }
 #else
   // Wheeled: a drive motor + a steering servo, no tank mix. cmdTrackR = drive, cmdTrackL = steer.
-  cmdTrackR = (int16_t)pulseWidth[outDriveR] - 1500; // drive
-  cmdTrackL = (int16_t)pulseWidth[outDriveL] - 1500; // steer (servo passes through, engine or not)
+  cmdTrackR = expoSigned((int32_t)pulseWidth[outDriveR] - 1500, 500, driveExpo); // drive (expo for fine control)
+  cmdTrackL = (int16_t)pulseWidth[outDriveL] - 1500; // steer (servo passes through linear, engine or not)
   if (!engineRunning) cmdTrackR = 0;
 #endif
 }
