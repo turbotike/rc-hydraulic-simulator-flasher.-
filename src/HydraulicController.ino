@@ -221,6 +221,8 @@ int16_t currentThrottleFaded = 0;
 const int16_t maxRpm = 500;
 const int16_t minRpm = 0;
 int32_t currentRpm = 0;
+int16_t cmdTrackL = 0, cmdTrackR = 0;       // commanded track effort ±500 (declared early: read by the governor)
+int16_t swashL = 0, swashR = 0;             // ramped swashplate state ±500
 int32_t targetHydraulicRpm[17];
 volatile uint8_t engineState = 0;
 enum EngineState { OFF, STARTING, RUNNING, STOPPING };
@@ -1011,7 +1013,11 @@ void engineMassSimulation() {
                           0, max((int16_t)1, pumpFlowCapacity), 0, maxSagRpm);
   if (rpmSag < targetSag)      { rpmSag += sagAttack;   if (rpmSag > targetSag) rpmSag = targetSag; }
   else if (rpmSag > targetSag) { rpmSag -= sagRecovery; if (rpmSag < targetSag) rpmSag = targetSag; }
-  targetRpm = constrain((int32_t)currentThrottle - rpmSag, 0, 500);
+  // Driving revs the engine: rpm follows whichever is higher — the hand-throttle or how hard you're
+  // driving — so the engine note and the track speed rise together (the droop then paces tracks to rpm).
+  int16_t driveDemand = (int16_t)((abs(swashL) + abs(swashR)) / 2); // 0..500 from the drive command
+  int16_t rpmBase = max((int16_t)currentThrottle, driveDemand);
+  targetRpm = constrain((int32_t)rpmBase - rpmSag, 0, 500);
   engineLugging = (currentRpm < lugRpmThreshold && totalFlowDemand > pumpFlowCapacity / 2);
 
 #elif defined EXCAVATOR_MODE || defined BACKHOE_MODE
@@ -1166,8 +1172,6 @@ void esc() {
 // plus the shared proportional-valve implement model. Uses the active machine output map
 // (MACHINE_TRACKED / outImpl[] / outDriveR / outDriveL) defined in config.h.
 // ════════════════════════════════════════════════════════════════
-int16_t cmdTrackL = 0, cmdTrackR = 0;       // commanded track effort ±500
-int16_t swashL = 0, swashR = 0;             // ramped swashplate state ±500
 int16_t actualTrackL = 0, actualTrackR = 0; // after droop, ±500 → servo
 int16_t driveFlowDemand = 0;                // track pump load (0..~60), set in hydrostaticModel
 
@@ -1217,10 +1221,9 @@ void hydrostaticModel() {
 #if MACHINE_TRACKED
   swashL = rampToward(swashL, cmdTrackL, swashAccelRate, swashDecelRate);
   swashR = rampToward(swashR, cmdTrackR, swashAccelRate, swashDecelRate);
-  // Track speed follows rpm on a SQUARED curve: only a crawl at idle/low rpm, and you have to bring
-  // the throttle up to build real speed (stalls as rpm → 0).
-  int32_t rr = constrain((int32_t)currentRpm * 100 / max((int16_t)1, driveDroopRefRpm), 0, 100);
-  int32_t droop = rr * rr / 100;
+  // Track speed follows rpm: since driving now revs the engine, low drive = low rpm = crawl, and it
+  // builds toward full speed as the engine comes up (and it stalls toward idle rpm).
+  int32_t droop = constrain((int32_t)currentRpm * 100 / max((int16_t)1, driveDroopRefRpm), 0, 100);
   actualTrackL = swashL * droop / 100; // tracks slow as the engine bogs, recover as rpm returns
   actualTrackR = swashR * droop / 100;
   driveFlowDemand = (int16_t)(((int32_t)abs(swashL) + abs(swashR)) * driveFlowWeight / 1000);
