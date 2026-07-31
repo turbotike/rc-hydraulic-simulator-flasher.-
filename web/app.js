@@ -342,7 +342,7 @@ function demoStopTracks() { demoLoopStop(demoTrackRef); }
 function demoTrackRate(speed) {
   if (!demoTrackRef.n) return;
   const s = Math.max(0, Math.min(1, speed));
-  const r = 0.38 + s * 0.4; // ~0.38 crawling → ~0.78 full pace
+  const r = 0.38 + s * 0.22; // ~0.38 crawling → ~0.60 full pace (tamed top end)
   const g = demoLvl("trackRattleVolumePercentage", 100) * demoMaster() * (0.5 + 0.5 * s);
   try { demoTrackRef.n.src.playbackRate.setTargetAtTime(r, audioCtx.currentTime, 0.2); } catch (_) {}
   try { demoTrackRef.n.g.gain.setTargetAtTime(g, audioCtx.currentTime, 0.2); } catch (_) {}
