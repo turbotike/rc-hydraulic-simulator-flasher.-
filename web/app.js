@@ -294,8 +294,8 @@ async function demoStart(fadeInMs) {
   const bus = demoAudioBus();
   const idleF = slotFile("idleSound"), revF = slotFile("revSound"), startF = slotFile("startSound"), turboF = slotFile("turboSound");
   if (!idleF) { toast("No idle sound set.", "err"); return; }
-  let crankDur = 0, crankStartAt = audioCtx.currentTime;
-  if (startF) { try { const b = await loadSoundBuffer(startF); crankDur = b.duration; const s = audioCtx.createBufferSource(); s.buffer = b; const sg = audioCtx.createGain(); sg.gain.value = demoLvl("startVolumePercentage", 140) * demoMaster() * 1.4; s.connect(sg); sg.connect(bus); crankStartAt = audioCtx.currentTime; s.start(); } catch (_) {} }
+  let crankDur = 0, crankStartAt = audioCtx.currentTime, crankGain = null;
+  if (startF) { try { const b = await loadSoundBuffer(startF); crankDur = b.duration; const s = audioCtx.createBufferSource(); s.buffer = b; crankGain = audioCtx.createGain(); crankGain.gain.value = demoLvl("startVolumePercentage", 140) * demoMaster() * 1.4; s.connect(crankGain); crankGain.connect(bus); crankStartAt = audioCtx.currentTime; s.start(); } catch (_) { crankGain = null; } }
   const idleBuf = await loadSoundBuffer(idleF);
   const revBuf = revF ? await loadSoundBuffer(revF).catch(() => idleBuf) : idleBuf;
   const idleSrc = audioCtx.createBufferSource(); idleSrc.buffer = idleBuf; idleSrc.loop = true;
@@ -311,10 +311,14 @@ async function demoStart(fadeInMs) {
     const turboGain = audioCtx.createGain(); turboGain.gain.value = 0; turboGain.connect(bus); turboSrc.connect(turboGain);
     turboSrc.start(); demo.turboSrc = turboSrc; demo.turboGain = turboGain;
   } catch (_) {} }
-  if (fadeInMs) { // let the crank play fully through, then fade the idle loop in behind its tail
+  if (fadeInMs) { // true crossfade: crank fades down over its tail while the idle loop comes up
     idleGain.gain.value = 0; revGain.gain.value = 0;
-    const startAt = crankStartAt + Math.max(0.2, crankDur - 0.25);
-    idleGain.gain.setTargetAtTime(demoLvl("idleVolumePercentage", 100) * demoMaster(), startAt, 0.4);
+    const xf = Math.min(0.9, Math.max(0.35, crankDur * 0.45));   // crossfade length
+    const startAt = crankStartAt + Math.max(0.15, crankDur - xf);
+    const idleTarget = demoLvl("idleVolumePercentage", 100) * demoMaster();
+    idleGain.gain.setValueAtTime(0, startAt);
+    idleGain.gain.linearRampToValueAtTime(idleTarget, startAt + xf);
+    if (crankGain) { crankGain.gain.setValueAtTime(crankGain.gain.value, startAt); crankGain.gain.linearRampToValueAtTime(0, startAt + xf); }
   } else { demoThrottle(0); }
 }
 // A looping effect (track rattle / pump / relief) with a smooth fade in/out.
@@ -376,6 +380,22 @@ function demoStop() {
   demoStopPump(); demoStopTracks(); demoStopRelief();
   if (demo) { try { demo.idleSrc.stop(); demo.revSrc.stop(); if (demo.turboSrc) demo.turboSrc.stop(); } catch (_) {} demo = null; }
 }
+// Automatic diesel wind-down: rpm/pitch sag to a stall and the volume tails off, then everything
+// stops. Returns a promise so the caller can wait for the shutdown to finish.
+function demoShutdown() {
+  return new Promise((resolve) => {
+    if (!demo || !audioCtx) { demoStop(); resolve(); return; }
+    const now = audioCtx.currentTime, dn = 1.2; // wind-down time
+    demoStopPump(); demoStopRelief(); demoStopTracks();
+    [demo.idleSrc, demo.revSrc, demo.turboSrc].forEach((s) => {
+      if (s) try { s.playbackRate.setValueAtTime(s.playbackRate.value, now); s.playbackRate.exponentialRampToValueAtTime(0.18, now + dn); } catch (_) {}
+    });
+    [demo.idleGain, demo.revGain, demo.turboGain].forEach((g) => {
+      if (g) try { g.gain.setTargetAtTime(0, now + dn * 0.45, 0.3); } catch (_) {}
+    });
+    setTimeout(() => { demoStop(); resolve(); }, (dn + 0.35) * 1000);
+  });
+}
 
 // Scripted auto-demo (your walkaround): crank → crossfade to idle → throttle up → hold →
 // lower the blade → drive forward → stop → back to idle → off.
@@ -422,7 +442,7 @@ async function demoAuto(onThrottle, onStage) {
     stage("🛑 Stop");                  await trackTo(0.95, 0.2, 500); demoStopTracks(); await sleep(700);
     stage("🔻 Back to idle");          demoStopPump(); await glide(1.0, 0, 1500); if (onThrottle) onThrottle(0);
     await sleep(1400);
-    stage("🔌 Engine off");            demoStop();
+    stage("🔌 Shutting down");         await demoShutdown();
     await sleep(200); stage("");
   } finally { demoAutoRunning = false; }
 }
