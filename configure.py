@@ -125,6 +125,7 @@ SLOT_EXPECTED_VARS = {
     "trackRattleSound":    ("trackRattleSamples",    "trackRattleSampleCount",    "trackRattleSampleRate"),
     "trackRattle2Sound":   ("trackRattle2Samples",   "trackRattle2SampleCount",   "trackRattle2SampleRate"),
     "bucketRattleSound":   ("bucketRattleSamples",  "bucketRattleSampleCount",  "bucketRattleSampleRate"),
+    "lowBatterySound":     ("lowBatterySamples",    "lowBatterySampleCount",    "lowBatterySampleRate"),
 }
 
 
@@ -254,6 +255,7 @@ def read_config():
         "couplingSound": None, "uncouplingSound": None,
         "hydraulicPumpSound": None, "hydraulicFlowSound": None,
         "trackRattleSound": None, "trackRattle2Sound": None, "bucketRattleSound": None,
+        "lowBatterySound": None,
     }
 
     # Parse includes in order — map by the variable that precedes them
@@ -282,6 +284,7 @@ def read_config():
         "trackRattleVolumePercentage": "trackRattleSound",
         "trackRattle2VolumePercentage": "trackRattle2Sound",
         "bucketRattleVolumePercentage": "bucketRattleSound",
+        "lowBatteryVolumePercentage": "lowBatterySound",
     }
 
     current_slot = None
@@ -534,6 +537,7 @@ def write_config(cfg):
         "trackRattleVolumePercentage": "trackRattleSound",
         "trackRattle2VolumePercentage": "trackRattle2Sound",
         "bucketRattleVolumePercentage": "bucketRattleSound",
+        "lowBatteryVolumePercentage": "lowBatterySound",
     }.items():
         slot_map_rev[slot] = var
 
@@ -595,6 +599,7 @@ def write_config(cfg):
             "trackRattleVolumePercentage": "trackRattleSound",
             "trackRattle2VolumePercentage": "trackRattle2Sound",
             "bucketRattleVolumePercentage": "bucketRattleSound",
+            "lowBatteryVolumePercentage": "lowBatterySound",
         }.items():
             if var in line and '=' in line:
                 pre_slot = slot
@@ -686,6 +691,7 @@ def write_config(cfg):
             "trackRattleVolumePercentage": "trackRattleSound",
             "trackRattle2VolumePercentage": "trackRattle2Sound",
             "bucketRattleVolumePercentage": "bucketRattleSound",
+            "lowBatteryVolumePercentage": "lowBatterySound",
         }.items():
             if var in line and '=' in line:
                 current_slot = slot
@@ -1291,7 +1297,8 @@ def spa_schema():
                    ("revSound", "Engine rev"), ("turboSound", "Turbo"),
                    ("hydraulicPumpSound", "Hydraulic pump whine"),
                    ("trackRattleSound", "Track rattle"), ("bucketRattleSound", "Bucket rattle"),
-                   ("hornSound", "Horn"), ("reversingSound", "Reversing beep")]
+                   ("hornSound", "Horn"), ("reversingSound", "Reversing beep"),
+                   ("lowBatterySound", "Low-battery warning")]
     # Each slot's dropdown shows only sounds that fit it (by filename keyword). (include, exclude)
     slot_filters = {
         "startSound":         (("start", "crank"), ()),

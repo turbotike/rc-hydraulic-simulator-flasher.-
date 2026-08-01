@@ -262,6 +262,8 @@ float batteryCutoffvoltage;
 float batteryVoltage;
 uint8_t numberOfCells;
 bool batteryProtection = false;
+volatile bool lowBatteryTrigger = false; // fires the spoken "low battery" voice once
+volatile bool lowBatteryLatch   = false; // set while that voice is playing out
 
 // FreeRTOS
 TaskHandle_t Task1;
@@ -714,18 +716,39 @@ void IRAM_ATTR fixedPlaybackTimer() {
     c5 = 0;
   }
 
+  // Spoken "Low battery" — fired once (then every 45s) when the pack trips protection. Plays even
+  // with the engine off (you might check the pack before starting) and ducks the aux mix so it's clear.
+  static uint32_t curLowBatterySample = 0;
+  int32_t lb = 0;
+  if (lowBatteryTrigger || lowBatteryLatch) {
+    lowBatteryLatch = true;
+    lowBatteryTrigger = false;
+    if (curLowBatterySample < lowBatterySampleCount - 1) {
+      lb = (lowBatterySamples[curLowBatterySample] * lowBatteryVolumePercentage / 100);
+      curLowBatterySample++;
+    } else {
+      curLowBatterySample = 0;
+      lowBatteryLatch = false;
+    }
+  } else {
+    curLowBatterySample = 0;
+  }
+
   // Mix & output to DAC2
   a = a1 + a2;
   b = b0 * 5 + b1 + b2 / 2 + b3 + b4 + b5 + b6 + b7 + b8 + b9;
   c = c2 + c3 + c4 + c5;
   d = d1 + d2;
 
-  // Engine fully OFF → mute the aux DAC too, so frozen/looping voices don't buzz at idle.
+  // Engine fully OFF → mute the aux DAC (so frozen/looping voices don't buzz), UNLESS the low-battery
+  // voice is playing — that one always gets through.
   uint8_t value;
-  if (engineState == OFF) {
+  if (engineState == OFF && !lowBatteryLatch) {
     value = dacOffset;
   } else {
-    int32_t v = ((a * 8 / 10) + (b * 2 / 10) + c + d) * masterVolume / 100;
+    int32_t aux = (a * 8 / 10) + (b * 2 / 10) + c + d;
+    if (lowBatteryLatch) aux /= 4;                 // duck the aux so the spoken warning cuts through
+    int32_t v = (aux + lb) * masterVolume / 100;
     // Soft LIMITER: everything past ±118 is compressed 2:1 so the aux voices (rattle + whine) stay
     // clean and never hard-clip/tear, even with the Levels cranked up. Normal-loud stuff stays linear.
     if (v > 118)      v = 118 + (v - 118) / 2;
@@ -1400,6 +1423,12 @@ void updateGamepadRumble() {
   if (millis() - lastMs < 60) return; // ~16 Hz refresh — smooth enough to PULSE the tracks
   lastMs = millis();
 
+  if (batteryProtection) {                          // LOW BATTERY: short warning buzz every second
+    bool buzz = (millis() % 1000) < 200;
+    gpController->playDualRumble(0, 90, buzz ? 200 : 0, buzz ? 255 : 0);
+    return;
+  }
+
   uint8_t weak = 0, strong = 0;
   if (engineState == STARTING) { weak = 90; strong = 140; } // cranking shudder
   else if (engineRunning) {
@@ -1438,6 +1467,12 @@ void updateGamepadLED() {
   static uint32_t lastMs = 0;
   if (millis() - lastMs < 200) return; // 5 Hz — don't flood Bluetooth
   lastMs = millis();
+
+  if (batteryProtection) {                         // LOW BATTERY: hard red flash, overrides every mode
+    bool on = (millis() % 600) < 300;
+    gpController->setColorLED(on ? 255 : 0, 0, 0);
+    return;
+  }
 
   uint8_t r = 0, g = 0, b = 0;
   switch (ledColorMode) {
@@ -2166,6 +2201,65 @@ void handleSerialCommands() {
 }
 
 // ════════════════════════════════════════════════════════════════
+// BATTERY MONITOR — voltage divider on VN, spoken low-battery warning
+// ════════════════════════════════════════════════════════════════
+
+// Averaged pack voltage. calibration = (Rtop+Rbottom)/Rbottom + diode trim.
+float batteryVolts() {
+  static float raw[6];
+  static bool initDone = false;
+  float cal = (batteryRtop + batteryRbottom) / batteryRbottom + batteryDiodeDrop;
+  if (!initDone) { for (uint8_t i = 0; i < 6; i++) raw[i] = battery.readVoltage(); initDone = true; }
+  raw[5] = raw[4]; raw[4] = raw[3]; raw[3] = raw[2]; raw[2] = raw[1]; raw[1] = raw[0];
+  raw[0] = battery.readVoltage();
+  return (raw[0] + raw[1] + raw[2] + raw[3] + raw[4] + raw[5]) / 6.0f * cal;
+}
+
+// Detect how many LiPo cells are in series from a plausible pack voltage.
+void detectCells(float v) {
+  if (batteryCellsOverride > 0) { numberOfCells = batteryCellsOverride; }
+  else {
+    float setpoint = cellCutoffVoltage - (cellFullVoltage - cellCutoffVoltage) / 2.0f; // midpoint-ish per cell
+    numberOfCells = 1;
+    if (v > setpoint * 2) numberOfCells = 2;
+    if (v > setpoint * 3) numberOfCells = 3;
+    if (v > cellFullVoltage * 3) numberOfCells = 4;
+  }
+  batteryCutoffvoltage = cellCutoffVoltage * numberOfCells;
+  Serial.printf("Battery: %.2f V, %dS pack, cutoff %.2f V\n", v, numberOfCells, batteryCutoffvoltage);
+}
+
+// Poll the pack, flag protection, and fire the spoken warning + re-announce while low.
+void updateBattery() {
+  if (!batteryMonitorEnabled) return;
+  static uint32_t last = 0;
+  if (millis() - last < 300) return;
+  last = millis();
+
+  batteryVoltage = batteryVolts();
+
+  // Under ~5.5 V means we're on USB / no pack connected — don't nag or false-alarm on the bench.
+  if (batteryVoltage < 5.5f) { batteryProtection = false; numberOfCells = 0; return; }
+
+  if (numberOfCells == 0) detectCells(batteryVoltage); // a pack just came up — size it
+
+  static uint32_t lastAnnounce = 0;
+  if (batteryVoltage < batteryCutoffvoltage) {
+    if (!batteryProtection) {                       // just crossed the threshold
+      batteryProtection = true;
+      lowBatteryTrigger = true;                     // say "low battery" once now
+      lastAnnounce = millis();
+      Serial.printf("LOW BATTERY %.2f V (< %.2f V) — bring it home!\n", batteryVoltage, batteryCutoffvoltage);
+    } else if (millis() - lastAnnounce > 45000) {   // keep reminding every 45 s while low
+      lowBatteryTrigger = true;
+      lastAnnounce = millis();
+    }
+  } else if (batteryVoltage > batteryCutoffvoltage + 0.25f * numberOfCells) {
+    batteryProtection = false;                       // recovered (hysteresis)
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
 // SETUP
 // ════════════════════════════════════════════════════════════════
 
@@ -2281,6 +2375,13 @@ void setup() {
   Serial.println(autoZeroDone ? "RC calibrated!" : "RC timeout — using defaults");
 #endif
 
+  // Battery monitor: attach the ADC and size the pack (if one's connected).
+  if (batteryMonitorEnabled) {
+    battery.attach(BATTERY_DETECT_PIN);
+    float v = batteryVolts();
+    if (v > 5.5f) detectCells(v); else Serial.println("Battery: on USB / no pack — monitor idle.");
+  }
+
   // Audio timers
   variableTimer = timerBegin(0, 20, true);
   timerAttachInterrupt(variableTimer, &variablePlaybackTimer, true);
@@ -2349,6 +2450,8 @@ void loop() {
 #endif
 
   loadModel();         // total pump demand → governor bog (must run after the sound set above)
+
+  updateBattery();     // poll pack voltage → low-battery warning (voice + controller)
 
   // Servo output
   mcpwmOutput();

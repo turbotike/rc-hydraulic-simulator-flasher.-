@@ -67,7 +67,7 @@ int16_t trackThrowScale = 100;  // % of servo throw the tracks use
 int16_t counterRotScale = 80;   // % throw allowed while counter-rotating (spin on the spot)
 int16_t driveDroopRefRpm = 380; // engine rpm for full track speed — lower = reaches full speed sooner
 int16_t driveIdleCreepPercent = 28; // min track-speed % at idle throttle so it still creeps (0 = stall at idle)
-int16_t hydIdleFlowPercent = 30;    // min implement speed % at idle rpm — hydraulics also ride pump flow
+int16_t hydIdleFlowPercent = 50;    // min implement speed % at idle rpm — hydraulics also ride pump flow
 
 // --- Implement (proportional valve) model: [lift, tilt, angle, ripper] ---
 uint8_t implFlowWeight[4] = {40, 25, 25, 35};      // % pump load each function draws at full flow
@@ -274,7 +274,19 @@ uint32_t sbusBaud = 100000;     // Standard 100000. Some receivers need 163863
 #define PWM_CH6_PIN         34
 
 // Battery voltage sense
-#define BATTERY_DETECT_PIN  39  // Voltage divider on VN
+#define BATTERY_DETECT_PIN  39  // Voltage divider on VN (standard on the DIYGuy999 PCBWay board)
+
+// ── Battery monitor / low-voltage warning ──
+// The reading = pin volts × (Rtop+Rbottom)/Rbottom + diode trim. Defaults are the DIYGuy reference
+// divider. CALIBRATE: put a multimeter on your pack, then nudge batteryDiodeDrop until the flasher's
+// "Battery" readout matches. It auto-detects your pack's cell count (2S/3S/4S) at power-on.
+bool    batteryMonitorEnabled = true;  // false = don't read/warn at all
+float   batteryRtop           = 9400;  // resistor VN → battery+ (ohms)
+float   batteryRbottom        = 1000;  // resistor VN → GND (ohms)
+float   batteryDiodeDrop      = 0.31;  // fine-trim so the readout matches your multimeter
+float   cellCutoffVoltage     = 3.40;  // WARN below this per LiPo cell (never below 3.2 V!)
+float   cellFullVoltage       = 4.20;  // fully-charged per cell (for cell-count detection)
+uint8_t batteryCellsOverride  = 0;     // 0 = auto-detect S-count at boot; or force 2 / 3 / 4
 
 // Lights output
 #define FRONT_WORKLIGHT_PIN      3   // Front work lights  — board HEADL header (GPIO3)
@@ -435,6 +447,10 @@ uint16_t trackRattleIntervalMax = 305;  // ms at min speed
 // --- Bucket rattle ---
 volatile int bucketRattleVolumePercentage = 160;
 #include "sounds/Caterpillar323BucketRattle.h"
+
+// --- Spoken "Low battery" warning (played through the speaker when the pack runs low) ---
+volatile int lowBatteryVolumePercentage = 110;
+#include "sounds/lowBattery.h"
 
 // Auto-injected for parkingBrakeSound (was missing) — using idle sound
 const signed char* parkingBrakeSamples = samples;
