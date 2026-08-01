@@ -622,9 +622,9 @@ void IRAM_ATTR fixedPlaybackTimer() {
   // Track rattle (continuous). Rate scales with track speed (~38% crawl → slider ceiling at full
   // pace), INTERPOLATED between samples so changing the rate doesn't alias into static/buzz.
   if (tracksAreRotating) {
-    // Rate follows the ACTUAL track speed (which follows engine rpm × swash): ~38% crawl → ~120% at
-    // full motor speed. No slider — the top just IS whatever the motor is actually doing.
-    int32_t lo = 38, hi = 120;
+    // Rate follows the ACTUAL track speed (which follows engine rpm × swash): ~38% crawl → 60% at
+    // full motor speed (back to what it was before the slider). Motor speed itself is unchanged.
+    int32_t lo = 38, hi = 60;
     int32_t spd = constrain((int32_t)trackRattleVolume, (int32_t)0, (int32_t)100);
     uint32_t rate = (uint32_t)(lo + spd * (hi - lo) / 100);       // % of native speed
     static uint32_t trkPhase = 0;                                 // Q8 fixed-point index into the buffer
@@ -961,7 +961,7 @@ void mapThrottle() {
   //    and snap straight back to commanded rpm the instant any function moves. ──
   if (autoIdleEnabled) {
     static unsigned long lastActivity = 0;
-    static int16_t prevThrottle = 0;
+    static uint16_t thrRef = 1500; static uint32_t thrRefMs = 0;
 
     // Any enabled channel (except the throttle itself) off centre = a function is being worked.
     boolean activity = false;
@@ -969,14 +969,17 @@ void mapThrottle() {
       if (ch == CH_THROTTLE || !channelEnabled[ch]) continue;
       if (abs((int)pulseWidth[ch] - 1500) > 80) { activity = true; break; }
     }
-    // Moving the throttle stick itself also snaps out of idle-down.
-    if (abs(currentThrottle - prevThrottle) > 30) activity = true;
-    prevThrottle = currentThrottle;
+    // Watch the RAW throttle INPUT (the D-pad hand-throttle / throttle stick) over a ~200ms window —
+    // so a slow rev-up/down still counts as activity, and the idle-down's own output change (which
+    // does NOT touch this pulse) can never re-trigger it. This is what lets you rev back up past the
+    // idle level: the moment you work the throttle, idle-down backs off.
+    if (CH_THROTTLE > 0 && abs((int)pulseWidth[CH_THROTTLE] - (int)thrRef) > 15) activity = true;
+    if (millis() - thrRefMs > 200) { thrRef = (CH_THROTTLE > 0) ? pulseWidth[CH_THROTTLE] : 1500; thrRefMs = millis(); }
 
     if (activity) lastActivity = millis();
 
     // Parked and untouched past the delay → ease the throttle DOWN to the idle-down level (a fast
-    // idle, not necessarily dead idle), and snap back up the instant activity returns.
+    // idle), and snap back to your throttle the instant activity returns.
     int16_t idleFloor = (int16_t)constrain((int32_t)autoIdleThrottlePercent * 500 / 100, (int32_t)0, (int32_t)500);
     if (currentThrottle > idleFloor && !activity && millis() - lastActivity > autoIdleDelayMs) {
       currentThrottle = idleFloor;
@@ -1332,6 +1335,7 @@ void loadModel() {
 void updateGamepadRumble() {
 #if GP_RUMBLE
   if (!gpController || !gpController->isConnected() || !gpController->isGamepad()) return;
+  if (!gpRumbleOn) { gpController->playDualRumble(0, 0, 0, 0); return; } // vibration toggled off
 
   static uint32_t lastMs = 0;
   static bool prevStrain = false;
@@ -1378,6 +1382,27 @@ void updateGamepadRumble() {
   }
   gpController->playDualRumble(0, 90, weak, strong); // duration > refresh -> continuous
 #endif
+}
+
+// ── Controller lightbar: dim blue when off → green idle → amber under load → red when it bogs. ──
+void updateGamepadLED() {
+  if (!gpController || !gpController->isConnected() || !gpController->isGamepad()) return;
+  static uint32_t lastMs = 0;
+  if (millis() - lastMs < 200) return; // 5 Hz — don't flood Bluetooth
+  lastMs = millis();
+
+  uint8_t r = 0, g = 0, b = 0;
+  if (engineState == OFF) {
+    b = 6;                                                  // dim blue = powered, engine off
+  } else if (engineLugging) {
+    r = 255;                                                // red = bogging
+  } else {
+    int load = constrain(totalFlowDemand, (int16_t)0, (int16_t)100);
+    r = (uint8_t)(load * 255 / 100);                        // green → amber → red as load builds
+    g = (uint8_t)(200 - load * 200 / 100);
+    if (g < 30) g = 30;
+  }
+  gpController->setColorLED(r, g, b);
 }
 #endif // GAMEPAD_MODE
 
@@ -2262,6 +2287,7 @@ void loop() {
 
 #if defined GAMEPAD_MODE
   updateGamepadRumble(); // engine-feel haptics (only if GP_RUMBLE)
+  updateGamepadLED();    // lightbar: idle green → load amber → bog red
 #endif
 
 

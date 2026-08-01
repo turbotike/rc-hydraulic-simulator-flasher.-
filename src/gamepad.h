@@ -143,6 +143,8 @@ extern uint16_t pulseWidthRaw[]; // channel array (declared in the .ino); CH_* i
 
 ControllerPtr gpController = nullptr;
 volatile bool gamepadConnected = false;
+bool gpRumbleOn = (GP_RUMBLE != 0); // runtime vibration on/off (toggle: hold both bumpers, flick right stick L/R)
+bool gpVolMode = false;             // both bumpers held → right stick adjusts volume / vibration, not implements
 #define GP_REPAIR_PIN 0   // BOOT button — hold ~3s while running to forget bonds and re-pair
 
 static void gpOnConnect(ControllerPtr ctl)
@@ -227,6 +229,9 @@ static uint16_t gpResolve(ControllerPtr c, uint8_t idx, uint8_t src, uint16_t bt
   static bool tog[4] = {false, false, false, false};
   static bool prev[4] = {false, false, false, false};
   uint16_t btn = c->buttons();
+  // While the settings combo is active, the right stick controls volume/vibration — hold its
+  // implement at centre so it doesn't also move the blade/whatever.
+  if (gpVolMode && (src == GP_SRC_RX || src == GP_SRC_RY)) return ct;
   switch (src)
   {
   case GP_SRC_LX:   return gpMapCentered(c->axisX(), mn, ct, mx, 40);
@@ -279,6 +284,21 @@ void readGamepadCommands()
   int rx = c->axisRX();  // right stick X
   int ry = c->axisRY();  // right stick Y
   uint16_t btn = c->buttons();
+
+  // ── Settings combo: hold BOTH bumpers (L1 0x10 + R1 0x20), then the RIGHT STICK adjusts settings
+  //    instead of driving an implement: up/down = master VOLUME, left/right flick = VIBRATION on/off. ──
+  gpVolMode = ((btn & 0x0010) && (btn & 0x0020));
+  if (gpVolMode) {
+    static uint32_t lastVolMs = 0;
+    if (millis() - lastVolMs > 60) {           // ~16 Hz ramp
+      lastVolMs = millis();
+      if (ry < -220)      masterVolume = constrain(masterVolume + 4, 0, 300); // stick up = louder
+      else if (ry > 220)  masterVolume = constrain(masterVolume - 4, 0, 300); // stick down = quieter
+    }
+    static bool vibLatch = false;              // left/right flick toggles vibration
+    if (abs(rx) > 350) { if (!vibLatch) { gpRumbleOn = !gpRumbleOn; vibLatch = true; } }
+    else vibLatch = false;
+  }
 
   // --- Engine throttle: a HELD hand-throttle on the D-pad. Up = more rpm, down = less; it stays put
   //     when you let go. Starts at idle — throttle up to move. Lower rpm = slower tracks (drive droop). ---
