@@ -726,8 +726,8 @@ void IRAM_ATTR fixedPlaybackTimer() {
     value = dacOffset;
   } else {
     int32_t v = ((a * 8 / 10) + (b * 2 / 10) + c + d) * masterVolume / 100;
-    // Soft LIMITER: everything past ±72 is compressed 8:1 so the aux voices (rattle + whine) stay
-    // clean and never hard-clip/tear, even with the Levels cranked way up. Quiet stuff stays linear.
+    // Soft LIMITER: everything past ±118 is compressed 2:1 so the aux voices (rattle + whine) stay
+    // clean and never hard-clip/tear, even with the Levels cranked up. Normal-loud stuff stays linear.
     if (v > 118)      v = 118 + (v - 118) / 2;
     else if (v < -118) v = -118 + (v + 118) / 2;
     value = (uint8_t)constrain(v + dacOffset, 0, 255);
@@ -1262,14 +1262,6 @@ void driveMixer() {
     l = l * counterRotScale / 100;
     r = r * counterRotScale / 100;
   }
-  // ESC re-arm: brushed track ESCs usually need to SEE neutral before they'll flip forward<->reverse.
-  // Auto-insert that neutral on a direction change so you don't have to recenter the stick yourself.
-  static int8_t prevDir = 0;
-  static uint32_t reverseDwellMs = 0;
-  int8_t dir = (drive > 70) ? 1 : (drive < -70) ? -1 : 0;
-  if (dir != 0 && prevDir != 0 && dir != prevDir) reverseDwellMs = millis() + 220;
-  if (dir != 0) prevDir = dir;
-  if (millis() < reverseDwellMs) { l = 0; r = 0; }
   cmdTrackL = l;
   cmdTrackR = r;
   #else // dual-track: one channel per track (excavator, skid steer, dozer dual-stick)
@@ -1291,6 +1283,22 @@ void hydrostaticModel() {
   if (millis() - last < 20) return;
   last = millis();
 #if MACHINE_TRACKED
+  // ESC re-arm: brushed track ESCs need to SEE a real neutral before they'll flip fwd<->reverse. When
+  // the commanded direction reverses while we're still moving, snap to a clean, HELD neutral output for
+  // a beat so the ESC re-arms — then release into the new direction. Saves recentering the stick.
+  static uint32_t reverseDwellUntil = 0;
+  static int8_t lastDir = 0;
+  int32_t cmdSum = (int32_t)cmdTrackL + cmdTrackR;
+  int8_t cmdDir = (cmdSum > 140) ? 1 : (cmdSum < -140) ? -1 : 0;
+  bool moving = (abs((int)swashL) + abs((int)swashR)) > 60;
+  if (cmdDir != 0 && lastDir != 0 && cmdDir != lastDir && moving) reverseDwellUntil = millis() + 250;
+  if (cmdDir != 0) lastDir = cmdDir;
+  if (millis() < reverseDwellUntil) {           // hold a true neutral so the ESC accepts the reverse
+    swashL = 0; swashR = 0;
+    actualTrackL = 0; actualTrackR = 0;
+    driveFlowDemand = 0;
+    return;
+  }
   swashL = rampToward(swashL, cmdTrackL, swashAccelRate, swashDecelRate);
   swashR = rampToward(swashR, cmdTrackR, swashAccelRate, swashDecelRate);
   // Full hydrostat: track speed = pump flow = swashplate displacement (swash) × engine-rpm fraction.
