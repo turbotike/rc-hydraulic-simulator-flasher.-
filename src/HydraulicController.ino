@@ -2128,6 +2128,12 @@ void setup() {
   Serial.begin(115200);
   Serial.println("HydraulicController starting...");
 
+#if defined GAMEPAD_MODE
+  // Bring Bluetooth up FIRST — before the sound-pack load and all the other init — so the stack is
+  // ready and a bonded controller can reconnect the instant the battery comes up (fastest connect).
+  setupGamepad();
+#endif
+
   // Load channel mapping from NVS (overrides defaults in config.h)
   loadChannelsFromNVS();
   loadSettingsFromNVS();
@@ -2174,9 +2180,9 @@ void setup() {
   mcpwm_init(MCPWM_UNIT_1, MCPWM_TIMER_0, &servo_config);  // implements 1 + 2
   mcpwm_init(MCPWM_UNIT_1, MCPWM_TIMER_1, &servo_config);  // implements 3 + 4
 
-  // RC input setup
+  // RC input setup (gamepad already started at the top of setup() for the fastest connect)
 #if defined GAMEPAD_MODE
-  setupGamepad();
+  // nothing here — setupGamepad() ran first thing
 #elif defined SBUS_COMMUNICATION
   #if defined EMBEDDED_SBUS
     sBus.begin(COMMAND_RX, COMMAND_TX, sbusInverted, sbusBaud);

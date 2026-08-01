@@ -76,6 +76,8 @@ The **Sound Technician** tab lets you pick engine/pump/horn sounds. The **Levels
 ### 4. Plug in the ESP32 and Flash
 Connect the board with USB, then click **⚡ Flash** at the top. It finds the board, builds, and uploads. Watch the log — when it says done, it's on the board.
 
+> ⚠️ **Never plug in USB while the battery / BEC is powering the board.** Feeding it from two power sources at once can back-feed the regulator and damage the board or your USB port. **Disconnect the battery before you plug in USB to flash**, and unplug USB before you power it from the battery.
+
 ### 5. Wire it up and go
 Plug your ESCs/servos into the output headers (see [Wiring](#wiring-it-up)), power it up, and press the engine-start button (Triangle on a controller). 🚜
 
@@ -112,7 +114,7 @@ Every machine drives the same **6 output headers** on the board. What each one d
 
 **Sound:** the board's speaker output comes off the two DAC pins (GPIO 25 = engine + pump, GPIO 26 = knock/horn/relief) into the onboard amp → your speaker.
 
-**Power:** 5 V into the board's 5 V input (from a BEC or a 5 V battery). Never feed more than 3.3 V into a signal pin.
+**Power:** 5 V into the board's 5 V input (from a BEC or a 5 V battery). Never feed more than 3.3 V into a signal pin. **Never have USB and the battery/BEC connected at the same time** — flash over USB with the battery *off*, run off the battery with USB *unplugged*.
 
 > **CH5 and CH6 are inputs only** (they're input-only pins on the ESP32) — you can read two extra RC channels on them, but you can't drive anything from them. Your 6 outputs live on CH1 / CH2 / CH3 / CH4 / ESC / 32.
 
@@ -126,7 +128,9 @@ Pick **Game controller** on the Machine tab and Flash. Then pair your pad:
 
 *(PS5 DualSense = Create + PS · Xbox = the small pair button on top.)*
 
-Once paired, the board **remembers** your controller — on later power-ups it reconnects on its own the moment you tap **PS** (no re-pairing). To pair a *different* controller, hold the ESP32's **BOOT** button for ~3 s while it's running.
+Once paired, the board **remembers** your controller — on later power-ups it reconnects on its own the moment you tap **PS** (no re-pairing). Bluetooth comes up first thing at boot, so it's ready to grab the pad almost immediately after the battery goes in. To pair a *different* controller, hold the ESP32's **BOOT** button for ~3 s while it's running.
+
+**Handy in-game shortcuts** (gamepad): hold **both bumpers (L1 + R1)** and use the **right stick** — up/down = **master volume**, a left/right flick = **vibration on/off**. The controller **light bar** shows engine load (green idle → amber → red bog) or a fixed color you pick on the Machine tab.
 
 > **Connect time:** a **genuine** DS4/DualSense/Xbox pad connects in a couple of seconds. **Generic / clone** controllers have their own Bluetooth quirks and can take a while (or need a couple of tries) to pair — that's the clone, not the firmware. If one won't cooperate, a real first-party pad is the fix.
 

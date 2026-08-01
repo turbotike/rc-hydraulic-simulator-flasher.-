@@ -84,7 +84,7 @@ int16_t lugKnockBoost   = 40;  // extra engine strain when lugging
 
 // --- Auto idle-down: drop to low idle when nothing's been touched, snap back on any input ---
 boolean  autoIdleEnabled = true;  // true = idle down automatically when parked
-uint16_t autoIdleDelayMs = 3000;  // no-activity time before idling down (ms)
+uint16_t autoIdleDelayMs = 5250;  // no-activity time before idling down (ms)
 int16_t  autoIdleThrottlePercent = 45; // throttle % it settles to when parked (0 = dead idle)
 
 // --- Drive-stick expo: softens the drive stick around centre for fine control. 0 = linear, 100 = full cubic ---
