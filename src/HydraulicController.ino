@@ -462,8 +462,8 @@ void IRAM_ATTR variablePlaybackTimer() {
     int32_t duck = 100 - (int32_t)rattleDuckPercent * constrain((int16_t)trackRattleVolume, (int16_t)0, (int16_t)100) / 100;
     int32_t mix = (a * 8 / 10) + (b / 2) + (c / 5) + (d / 5) + (e / 5) + f + g;
     int32_t v = mix * duck / 100 * masterVolume / 100;
-    if (v > 72)       v = 72 + (v - 72) / 8;
-    else if (v < -72) v = -72 + (v + 72) / 8;
+    if (v > 118)      v = 118 + (v - 118) / 2;
+    else if (v < -118) v = -118 + (v + 118) / 2;
     value = (uint8_t)constrain(v + dacOffset, 0, 255);
   }
   SET_PERI_REG_BITS(RTC_IO_PAD_DAC1_REG, RTC_IO_PDAC1_DAC, value, RTC_IO_PDAC1_DAC_S);
@@ -708,8 +708,8 @@ void IRAM_ATTR fixedPlaybackTimer() {
     int32_t v = ((a * 8 / 10) + (b * 2 / 10) + c + d) * masterVolume / 100;
     // Soft LIMITER: everything past ±72 is compressed 8:1 so the aux voices (rattle + whine) stay
     // clean and never hard-clip/tear, even with the Levels cranked way up. Quiet stuff stays linear.
-    if (v > 72)       v = 72 + (v - 72) / 8;
-    else if (v < -72) v = -72 + (v + 72) / 8;
+    if (v > 118)      v = 118 + (v - 118) / 2;
+    else if (v < -118) v = -118 + (v + 118) / 2;
     value = (uint8_t)constrain(v + dacOffset, 0, 255);
   }
   SET_PERI_REG_BITS(RTC_IO_PAD_DAC2_REG, RTC_IO_PDAC2_DAC, value, RTC_IO_PDAC2_DAC_S);
@@ -1233,6 +1233,7 @@ void driveMixer() {
   // axes of the drive stick so small moves are gentle for fine control.
   int32_t drive = expoSigned((int32_t)pulseWidth[CH_DZ_DRIVE] - 1500, 500, driveExpo); // ±500
   int32_t steer = expoSigned((int32_t)pulseWidth[CH_DZ_STEER] - 1500, 500, driveExpo);
+  if (drive < 0) steer = -steer; // reverse: flip steer so it turns the way the stick points (like a car)
   int32_t l = drive + steer;
   int32_t r = drive - steer;
   int32_t m = max(labs(l), labs(r));
@@ -1241,6 +1242,14 @@ void driveMixer() {
     l = l * counterRotScale / 100;
     r = r * counterRotScale / 100;
   }
+  // ESC re-arm: brushed track ESCs usually need to SEE neutral before they'll flip forward<->reverse.
+  // Auto-insert that neutral on a direction change so you don't have to recenter the stick yourself.
+  static int8_t prevDir = 0;
+  static uint32_t reverseDwellMs = 0;
+  int8_t dir = (drive > 70) ? 1 : (drive < -70) ? -1 : 0;
+  if (dir != 0 && prevDir != 0 && dir != prevDir) reverseDwellMs = millis() + 220;
+  if (dir != 0) prevDir = dir;
+  if (millis() < reverseDwellMs) { l = 0; r = 0; }
   cmdTrackL = l;
   cmdTrackR = r;
   #else // dual-track: one channel per track (excavator, skid steer, dozer dual-stick)

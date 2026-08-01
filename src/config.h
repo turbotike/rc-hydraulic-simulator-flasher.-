@@ -65,7 +65,7 @@ int16_t swashAccelRate  = 15;   // swashplate stroke toward command, per 20ms ti
 int16_t swashDecelRate  = 25;   // destroke back toward neutral (faster than accel)
 int16_t trackThrowScale = 100;  // % of servo throw the tracks use
 int16_t counterRotScale = 80;   // % throw allowed while counter-rotating (spin on the spot)
-int16_t driveDroopRefRpm = 450; // engine rpm for full track speed — throttle down = lower rpm = slower
+int16_t driveDroopRefRpm = 380; // engine rpm for full track speed — lower = reaches full speed sooner
 int16_t driveIdleCreepPercent = 28; // min track-speed % at idle throttle so it still creeps (0 = stall at idle)
 int16_t hydIdleFlowPercent = 30;    // min implement speed % at idle rpm — hydraulics also ride pump flow
 
@@ -101,7 +101,7 @@ uint8_t ledColorMode = 0;
 
 // --- Dig load (blade machines): inferred cutting resistance = blade down + driving forward.
 //     Not physics — a heuristic that loads the engine so pushing a lowered blade bogs it. ---
-int16_t digLoadGain     = 40;  // 0 = off. Low-moderate. Higher = the cut fights back harder.
+int16_t digLoadGain     = 0;   // 0 = OFF (dig/cutting sim removed — no power robbed).
 int16_t digLoadCap      = 70;  // ceiling on the extra pump demand from cutting (of ~140 capacity)
 int8_t  digBladeDownSign = -1; // which blade valve sign means "lowered". Flip to +1 if it loads on raise.
 
@@ -401,7 +401,7 @@ volatile int hydraulicPumpVolumePercentage = 80;
 #include "sounds/Caterpillar323Hydraulic.h"
 
 // --- Hydrostatic drive whine ("sing") — the cdc recording, pitched by track speed on the machine. ---
-volatile int hydrostaticWhineVolumePercentage = 160;  // shares DAC2 headroom with the rattle — keep modest
+volatile int hydrostaticWhineVolumePercentage = 90;  // shares DAC2 headroom with the rattle — keep modest
 #include "sounds/cdcWhine.h"
 
 // --- Hydraulic fluid flow ---
@@ -414,7 +414,7 @@ const unsigned int hydraulicFlowSampleRate = reliefSquealSampleRate;
 #include "sounds/reliefSqueal.h"
 
 // --- Track rattle ---
-volatile int trackRattleVolumePercentage = 200;  // >~130 clips the DAC (harsh distortion) with the whine
+volatile int trackRattleVolumePercentage = 100;  // sane loud level; the soft limiter has room now
 #include "sounds/D6TrackRattle.h"
 // Alias: auto-generated variable mapping
 const signed char* trackRattleSamples = trackRattle2Samples;
