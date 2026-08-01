@@ -975,10 +975,11 @@ void mapThrottle() {
 
     if (activity) lastActivity = millis();
 
-    // Parked and untouched past the delay → pull rpm down to base idle (throttle 0);
-    // the throttle smoother below eases it down, and back up the moment activity returns.
-    if (currentThrottle > 0 && !activity && millis() - lastActivity > autoIdleDelayMs) {
-      currentThrottle = 0;
+    // Parked and untouched past the delay → ease the throttle DOWN to the idle-down level (a fast
+    // idle, not necessarily dead idle), and snap back up the instant activity returns.
+    int16_t idleFloor = (int16_t)constrain((int32_t)autoIdleThrottlePercent * 500 / 100, (int32_t)0, (int32_t)500);
+    if (currentThrottle > idleFloor && !activity && millis() - lastActivity > autoIdleDelayMs) {
+      currentThrottle = idleFloor;
     }
   }
 

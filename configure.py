@@ -424,7 +424,7 @@ def write_config(cfg):
         "escRampTimeLow", "escRampTimeHigh",
         "escBrakeSteps", "escAccelerationSteps",
         "hydraulicRampTime", "hydraulicDeadZone",
-        "autoIdleDelayMs", "driveExpo", "hydrostaticWhineVolumePercentage",
+        "autoIdleDelayMs", "autoIdleThrottlePercent", "driveExpo", "hydrostaticWhineVolumePercentage",
         "reversingBeepMode",
         "masterVolume", "indicatorOn",
         "hiLoRatioPercent",
@@ -1249,6 +1249,9 @@ def spa_schema():
             "back to your set rpm the instant you move a stick or function."),
         sld("autoIdleDelayMs", "Idle-down delay", cfg.get("autoIdleDelayMs", 3000),
             500, 10000, 250, " ms", "How long with no input before it idles down."),
+        sld("autoIdleThrottlePercent", "Idle-down level", cfg.get("autoIdleThrottlePercent", 45),
+            0, 80, 5, "%", "Throttle it settles to when parked. 0 = drops to dead idle; higher = holds "
+            "a faster idle (e.g. 45% keeps the revs up)."),
         sld("driveExpo", "Drive stick expo", cfg.get("driveExpo", 30),
             0, 100, 5, "%", "Softens the drive stick around centre so small moves are gentle for "
             "fine control; full throw still reaches max. 0 = linear."),
