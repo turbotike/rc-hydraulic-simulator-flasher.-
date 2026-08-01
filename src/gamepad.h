@@ -152,9 +152,9 @@ static void gpOnConnect(ControllerPtr ctl)
   gpController = ctl;
   gamepadConnected = true;
   Serial.printf("Gamepad connected: %s\n", ctl->getModelName().c_str());
-  // Stop scanning for new controllers now that one is connected — the constant BT inquiry scan is
-  // RF chatter that couples into the DAC/amp (the "bluetooth through the speaker" noise).
-  BP32.enableNewBluetoothConnections(false);
+  // NOTE: we deliberately leave new BT connections ENABLED here. Disabling them cuts a little
+  // RF hiss from the speaker, but on flaky/clone pads it also blocks the stack from retrying a
+  // dropped handshake — so the pad gets locked out and "won't connect." Reliable connect wins.
 }
 static void gpOnDisconnect(ControllerPtr ctl)
 {

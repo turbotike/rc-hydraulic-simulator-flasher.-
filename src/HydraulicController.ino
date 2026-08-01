@@ -289,6 +289,17 @@ uint16_t loopTime;
 
 void IRAM_ATTR variablePlaybackTimer() {
 
+#if defined GAMEPAD_MODE
+  // Until a controller is connected there's nothing to hear (engine's off) — so hold the DAC at
+  // center and skip all the sample reads. Those reads hit flash ~44k times/sec, and that flash-bus
+  // traffic jitters the Bluetooth radio on the other core. Silencing it frees the bus so the pad
+  // latches on fast/clean. Full audio resumes the instant the controller connects.
+  if (!gamepadConnected) {
+    SET_PERI_REG_BITS(RTC_IO_PAD_DAC1_REG, RTC_IO_PDAC1_DAC, dacOffset, RTC_IO_PDAC1_DAC_S);
+    return;
+  }
+#endif
+
   static uint32_t attenuatorMillis = 0;
   static uint32_t curEngineSample = 0;
   static uint32_t curRevSample = 0;
@@ -474,6 +485,15 @@ void IRAM_ATTR variablePlaybackTimer() {
 // ════════════════════════════════════════════════════════════════
 
 void IRAM_ATTR fixedPlaybackTimer() {
+
+#if defined GAMEPAD_MODE
+  // Same as the variable ISR: no flash sample reads until a pad is connected, so the BT radio has a
+  // clean flash bus to latch onto during the connect window.
+  if (!gamepadConnected) {
+    SET_PERI_REG_BITS(RTC_IO_PAD_DAC2_REG, RTC_IO_PDAC2_DAC, dacOffset, RTC_IO_PDAC2_DAC_S);
+    return;
+  }
+#endif
 
   static uint32_t curHornSample = 0;
   static uint32_t curSirenSample = 0;
