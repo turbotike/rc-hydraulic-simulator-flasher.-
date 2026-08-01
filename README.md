@@ -1,6 +1,6 @@
 # RC Construction Machine — Sound, Hydraulics & Lights
 
-Turn one little ESP32 board into the brain of your RC construction machine: **real diesel engine sound, hydraulic pump whine, a relief-valve squeal when it digs in, track rattle, horn, backup beep, work lights, and 6 servo/ESC outputs** — for dozers, excavators, loaders, cranes, graders, skid steers and backhoes.
+Turn one little ESP32 board into the brain of your RC construction machine: **real diesel engine sound, a hydrostatic drive whine that rises with track speed, hydraulic pump whine, track rattle, horn, backup beep, work lights, controller rumble + light bar, and 6 servo/ESC outputs** — for dozers, excavators, loaders, cranes, graders, skid steers and backhoes.
 
 **Made for complete beginners.** No coding, no Arduino IDE, no command line. You download one app, click through some menus, plug in a USB cable, and hit **Flash**. That's it. The app quietly downloads everything it needs the first time.
 
@@ -16,12 +16,12 @@ Based on [TheDIYGuy999's RC_Engine_Sound_ESP32](https://github.com/TheDIYGuy999/
 
 Most RC sound kits just play a clip when you nudge a stick. This one **simulates the machine's hydraulics and driveline**, so it *reacts* to what you're doing — the sound **and** the outputs change with the load, like the real thing. There are no sensors and no extra hardware: it reads what you're doing with the sticks and models the machine from there.
 
-- **Hydrostatic drive.** The tracks don't snap to speed — the swashplate ramps up like a real pump-and-motor, so it *builds* and eases off. Pull back into a turn and it counter-rotates (spins on the spot).
-- **It bogs under load.** Push hard, or work the hydraulics, and the engine **lugs** — RPM sags, the diesel digs in, and the tracks actually **slow down** as it strains, then recover as it catches its breath. Lower the throttle and RPM drops, so it drives slower — just like the real machine.
-- **Relief valve.** Run a cylinder to its end-stop, or ask for more than the pump can give, and the **relief cracks** — a squeal, heavier engine load, the works. That's the machine telling you it's maxed out.
+- **Hydrostatic drive.** Track speed is real pump flow — **engine RPM × swashplate**. Throttle up and it goes faster; at idle it just creeps. The swashplate ramps like a real pump-and-motor, so it *builds* and eases off, and pulling back into a turn counter-rotates (spins on the spot).
+- **It bogs under load.** Push hard, or work the hydraulics, and the engine **lugs** — RPM sags, the diesel digs in, and the tracks actually **slow down** as it strains, then recover as it catches its breath.
+- **The drive sings.** A real recorded **hydrostatic whine** rises and falls with track speed, and the **track rattle clatters faster** the quicker you go. The engine even **ducks back** a touch as the tracks get busy, so the drive sound cuts through instead of piling up.
 - **Dig load.** Drop the blade and drive forward and it works out that you're **cutting** — the deeper and harder you push, the more it fights back and bogs. Lift the blade and it clears.
 - **Proportional valves.** Blade, tilt and ripper move smoothly with a deadzone and ramp, and the pump whine rises with how much you're asking of it.
-- **You feel it, too.** On a game controller the rumble follows the engine — an idle purr, a swell under load, and a jolt the instant the relief pops.
+- **You feel it, too.** On a game controller the rumble follows the machine — a diesel idle lope, a thump that pulses with track speed, a swell under load, and a hard jolt when it bogs. The **light bar** glows green → amber → red with the load.
 
 The result is a machine that feels like it has weight and power in reserve — and grunts when you put it to work. Fire it up, throttle on, drop the blade into a pile and *push* — and listen to it dig in.
 
@@ -68,7 +68,7 @@ Unzip it and run **RC Hydraulic Configurator**. Your web browser opens the confi
 > First run only: when you Flash, it downloads the ESP32 build tools (a few minutes, one time). After that it's instant.
 
 ### 2. Pick your machine
-On the **Machine** tab, choose your machine (**Dozer, Excavator, Loader, Crane, Grader, Skid Steer, or Backhoe**) and how you'll drive it (**RC transmitter** or **Game controller**).
+On the **Machine** tab, choose your machine (**Dozer, Excavator, Loader, Crane, Grader, Skid Steer, or Backhoe**). On the **Controls** tab, choose how you'll drive it — **RC transmitter** (and the bus: IBUS / SBUS / PWM) or a **Game controller**.
 
 ### 3. Set your sounds & levels *(optional)*
 The **Sound Technician** tab lets you pick engine/pump/horn sounds. The **Levels** tab sets how loud each one is. You can skip this and tune it later.
@@ -87,10 +87,10 @@ Plug your ESCs/servos into the output headers (see [Wiring](#wiring-it-up)), pow
 
 | Tab | What it does |
 |-----|--------------|
-| **🚜 Machine** | Pick the machine type and the input (RC transmitter / game controller / RC protocol). |
-| **🎚️ Levels** | Volume mixer — master volume, engine, pump, relief, rattle, horn, etc. |
+| **🚜 Machine** | Pick the machine type and drive mode, plus the feel tuning: auto idle-down (+ level), drive-stick expo, reversing beeper mode, controller light-bar colour, and rattle ducking. |
+| **🎚️ Levels** | Volume mixer — master volume, engine, pump, drive whine, rattle, horn, etc. Nothing can clip: both audio channels have a built-in soft limiter, so crank away. |
 | **🔊 Sound Technician** | Choose the actual sound for each slot, preview it, or upload your own WAV. |
-| **🎮 Controls** | Map controller sticks/buttons to each function, reverse any output, and set the drive feel. |
+| **🎮 Controls** | Pick RC transmitter (and bus: IBUS/SBUS/PWM) or game controller, map sticks/buttons to each function, and reverse any output. |
 | **⚡ Flash** | Build and upload to the board. |
 
 **One Save button.** The **Save** button at the top saves *everything* across all tabs. **Flash** saves first, then uploads — so you never flash a stale setup.
@@ -112,7 +112,7 @@ Every machine drives the same **6 output headers** on the board. What each one d
 
 > Switch the machine (e.g. Excavator) and the same headers become boom / stick / bucket / swing — the Controls tab always shows the current labels.
 
-**Sound:** the board's speaker output comes off the two DAC pins (GPIO 25 = engine + pump, GPIO 26 = knock/horn/relief) into the onboard amp → your speaker.
+**Sound:** the board's speaker output comes off the two DAC pins (GPIO 25 = engine + pump, GPIO 26 = knock / horn / track rattle / drive whine) into the onboard amp → your speaker.
 
 **Power:** 5 V into the board's 5 V input (from a BEC or a 5 V battery). Never feed more than 3.3 V into a signal pin. **Never have USB and the battery/BEC connected at the same time** — flash over USB with the battery *off*, run off the battery with USB *unplugged*.
 
@@ -122,7 +122,7 @@ Every machine drives the same **6 output headers** on the board. What each one d
 
 ## Driving with a game controller
 
-Pick **Game controller** on the Machine tab and Flash. Then pair your pad:
+Pick **Game controller** on the **Controls** tab and Flash. Then pair your pad:
 
 **PS4 (DualShock 4):** with the controller off, hold **SHARE + PS** for ~3–5 s until the light bar **double-flashes**. The board grabs it — light bar goes **solid** = connected.
 
