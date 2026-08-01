@@ -696,10 +696,10 @@ void IRAM_ATTR fixedPlaybackTimer() {
     value = dacOffset;
   } else {
     int32_t v = ((a * 8 / 10) + (b * 2 / 10) + c + d) * masterVolume / 100;
-    // Soft knee: compress peaks past ±108 to 1/4 instead of hard-clipping (kills the harsh rattle
-    // distortion when the rattle + whine stack up at full speed).
-    if (v > 108) v = 108 + (v - 108) / 4;
-    else if (v < -108) v = -108 + (v + 108) / 4;
+    // Soft LIMITER: everything past ±72 is compressed 8:1 so the aux voices (rattle + whine) stay
+    // clean and never hard-clip/tear, even with the Levels cranked way up. Quiet stuff stays linear.
+    if (v > 72)       v = 72 + (v - 72) / 8;
+    else if (v < -72) v = -72 + (v + 72) / 8;
     value = (uint8_t)constrain(v + dacOffset, 0, 255);
   }
   SET_PERI_REG_BITS(RTC_IO_PAD_DAC2_REG, RTC_IO_PDAC2_DAC, value, RTC_IO_PDAC2_DAC_S);
