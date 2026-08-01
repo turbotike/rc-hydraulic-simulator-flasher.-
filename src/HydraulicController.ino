@@ -1384,7 +1384,8 @@ void updateGamepadRumble() {
 #endif
 }
 
-// ── Controller lightbar: dim blue when off → green idle → amber under load → red when it bogs. ──
+// ── Controller lightbar. ledColorMode: 0 = reactive (green idle → amber load → red bog), else a
+//    fixed colour you pick in the flasher. ──
 void updateGamepadLED() {
   if (!gpController || !gpController->isConnected() || !gpController->isGamepad()) return;
   static uint32_t lastMs = 0;
@@ -1392,15 +1393,24 @@ void updateGamepadLED() {
   lastMs = millis();
 
   uint8_t r = 0, g = 0, b = 0;
-  if (engineState == OFF) {
-    b = 6;                                                  // dim blue = powered, engine off
-  } else if (engineLugging) {
-    r = 255;                                                // red = bogging
-  } else {
-    int load = constrain(totalFlowDemand, (int16_t)0, (int16_t)100);
-    r = (uint8_t)(load * 255 / 100);                        // green → amber → red as load builds
-    g = (uint8_t)(200 - load * 200 / 100);
-    if (g < 30) g = 30;
+  switch (ledColorMode) {
+    case 1: r = 0;   g = 0;   b = 255; break; // blue
+    case 2: r = 0;   g = 255; b = 0;   break; // green
+    case 3: r = 255; g = 0;   b = 0;   break; // red
+    case 4: r = 255; g = 110; b = 0;   break; // amber
+    case 5: r = 255; g = 255; b = 255; break; // white
+    case 6: r = 0;   g = 200; b = 255; break; // cyan
+    case 7: r = 200; g = 0;   b = 255; break; // purple
+    case 8: r = 0;   g = 0;   b = 0;   break; // off
+    default:                                   // 0 = reactive
+      if (engineState == OFF) { b = 6; }
+      else if (engineLugging) { r = 255; }
+      else {
+        int load = constrain(totalFlowDemand, (int16_t)0, (int16_t)100);
+        r = (uint8_t)(load * 255 / 100);
+        g = (uint8_t)(200 - load * 200 / 100); if (g < 30) g = 30;
+      }
+      break;
   }
   gpController->setColorLED(r, g, b);
 }

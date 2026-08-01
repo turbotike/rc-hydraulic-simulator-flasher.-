@@ -90,6 +90,10 @@ int16_t  autoIdleThrottlePercent = 45; // throttle % it settles to when parked (
 // --- Drive-stick expo: softens the drive stick around centre for fine control. 0 = linear, 100 = full cubic ---
 int16_t driveExpo = 55;
 
+// --- Controller lightbar colour (gamepad): 0 = reactive (green idle → amber load → red bog),
+//     1=blue 2=green 3=red 4=amber 5=white 6=cyan 7=purple 8=off ---
+uint8_t ledColorMode = 0;
+
 // --- Dig load (blade machines): inferred cutting resistance = blade down + driving forward.
 //     Not physics — a heuristic that loads the engine so pushing a lowered blade bogs it. ---
 int16_t digLoadGain     = 40;  // 0 = off. Low-moderate. Higher = the cut fights back harder.

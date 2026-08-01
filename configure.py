@@ -424,7 +424,7 @@ def write_config(cfg):
         "escRampTimeLow", "escRampTimeHigh",
         "escBrakeSteps", "escAccelerationSteps",
         "hydraulicRampTime", "hydraulicDeadZone",
-        "autoIdleDelayMs", "autoIdleThrottlePercent", "driveExpo", "hydrostaticWhineVolumePercentage",
+        "autoIdleDelayMs", "autoIdleThrottlePercent", "driveExpo", "ledColorMode", "hydrostaticWhineVolumePercentage",
         "reversingBeepMode",
         "masterVolume", "indicatorOn",
         "hiLoRatioPercent",
@@ -1258,6 +1258,10 @@ def spa_schema():
         sel("reversingBeepMode", "Reversing beeper", str(cfg.get("reversingBeepMode", 1)),
             [("1", "Reverse only"), ("2", "Forward + reverse"), ("0", "Off")],
             "The backup beeper: off, only when backing up, or whenever the machine moves."),
+        sel("ledColorMode", "Controller light", str(cfg.get("ledColorMode", 0)),
+            [("0", "Reactive (engine load)"), ("2", "Green"), ("1", "Blue"), ("3", "Red"),
+             ("4", "Amber"), ("6", "Cyan"), ("7", "Purple"), ("5", "White"), ("8", "Off")],
+            "The DS4/DualSense light bar colour. Reactive = green idle → amber load → red bog; or pick a fixed colour."),
     ]}
 
     # Levels tab: only the volumes that matter on construction equipment. The engine sound packs
