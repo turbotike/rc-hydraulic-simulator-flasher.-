@@ -8,6 +8,8 @@ Drive it with your normal **RC transmitter** *or* a **PS4 / PS5 / Xbox controlle
 
 Based on [TheDIYGuy999's RC_Engine_Sound_ESP32](https://github.com/TheDIYGuy999/Rc_Engine_Sound_ESP32) sound engine, rebuilt around hydraulic construction machines.
 
+> 🤖 **Vibe-coded.** This whole thing was built conversationally with an AI coding assistant — a hobbyist and a chatbot going back and forth until it felt right. It works and it's a blast, but treat it like the hobby build it is: **test everything on the bench first**, double-check your wiring, and don't trust it with anything safety-critical.
+
 ![logo](logo.png)
 
 ---
@@ -19,7 +21,6 @@ Most RC sound kits just play a clip when you nudge a stick. This one **simulates
 - **Hydrostatic drive.** Track speed is real pump flow — **engine RPM × swashplate**. Throttle up and it goes faster; at idle it just creeps. The swashplate ramps like a real pump-and-motor, so it *builds* and eases off, and pulling back into a turn counter-rotates (spins on the spot).
 - **It bogs under load.** Push hard, or work the hydraulics, and the engine **lugs** — RPM sags, the diesel digs in, and the tracks actually **slow down** as it strains, then recover as it catches its breath.
 - **The drive sings.** A real recorded **hydrostatic whine** rises and falls with track speed, and the **track rattle clatters faster** the quicker you go. The engine even **ducks back** a touch as the tracks get busy, so the drive sound cuts through instead of piling up.
-- **Dig load.** Drop the blade and drive forward and it works out that you're **cutting** — the deeper and harder you push, the more it fights back and bogs. Lift the blade and it clears.
 - **Proportional valves.** Blade, tilt and ripper move smoothly with a deadzone and ramp, and the pump whine rises with how much you're asking of it.
 - **You feel it, too.** On a game controller the rumble follows the machine — a diesel idle lope, a thump that pulses with track speed, a swell under load, and a hard jolt when it bogs. The **light bar** glows green → amber → red with the load.
 
@@ -157,7 +158,15 @@ Press the **lights button** (✕ on a controller, or your lights channel on RC) 
 
 **off → front → front + rear → front + rear + side → off**
 
-Wire your LED light bars (with resistors) to these headers: **front = HEADL**, **rear = FOGL**, **side = ROOFL**. They're simple on/off outputs through the board's built-in LED drivers.
+**Where to plug them in.** The board has three LED-driver headers, each a simple on/off output that switches your LED to ground:
+
+| Set | Board header | ESP32 pin |
+|-----|--------------|-----------|
+| **Front** (headlights) | **HEADL** | GPIO 3 |
+| **Rear** (tail / work) | **FOGL** | GPIO 16 |
+| **Side** (roof / beacon) | **ROOFL** | GPIO 5 |
+
+Wire your LED light bar between the header's output and the board's **+** and **GND** for that channel (follow the board's silkscreen), and **always put a current-limiting resistor in series** with the LEDs unless your light bar already has one. These are low-current LED-driver outputs — for anything bigger than a few small LEDs, switch it through a transistor/MOSFET.
 
 ---
 
