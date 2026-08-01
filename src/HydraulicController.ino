@@ -451,11 +451,17 @@ void IRAM_ATTR variablePlaybackTimer() {
     break;
   }
 
-  // Mix & output to DAC1. Engine fully OFF → output just the offset (clean silence); otherwise the
-  // frozen/stale voices sit on the DAC and buzz.
-  uint8_t value = (engineState == OFF)
-    ? dacOffset
-    : constrain(((a * 8 / 10) + (b / 2) + (c / 5) + (d / 5) + (e / 5) + f + g) * masterVolume / 100 + dacOffset, 0, 255);
+  // Mix & output to DAC1. Engine fully OFF → clean silence. Otherwise a soft LIMITER (past ±72,
+  // compressed 8:1) so no volume setting can hard-clip/tear — quiet stuff stays linear.
+  uint8_t value;
+  if (engineState == OFF) {
+    value = dacOffset;
+  } else {
+    int32_t v = ((a * 8 / 10) + (b / 2) + (c / 5) + (d / 5) + (e / 5) + f + g) * masterVolume / 100;
+    if (v > 72)       v = 72 + (v - 72) / 8;
+    else if (v < -72) v = -72 + (v + 72) / 8;
+    value = (uint8_t)constrain(v + dacOffset, 0, 255);
+  }
   SET_PERI_REG_BITS(RTC_IO_PAD_DAC1_REG, RTC_IO_PDAC1_DAC, value, RTC_IO_PDAC1_DAC_S);
 }
 
