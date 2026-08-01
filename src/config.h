@@ -90,6 +90,10 @@ int16_t  autoIdleThrottlePercent = 45; // throttle % it settles to when parked (
 // --- Drive-stick expo: softens the drive stick around centre for fine control. 0 = linear, 100 = full cubic ---
 int16_t driveExpo = 55;
 
+// --- Rattle ducking: as the tracks get busy, pull the engine back this % so the rattle/whine cut
+//     through instead of everything piling up. 0 = off, e.g. 30 = engine drops to 70% at full pace ---
+int16_t rattleDuckPercent = 30;
+
 // --- Controller lightbar colour (gamepad): 0 = reactive (green idle → amber load → red bog),
 //     1=blue 2=green 3=red 4=amber 5=white 6=cyan 7=purple 8=off ---
 uint8_t ledColorMode = 0;

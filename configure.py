@@ -424,7 +424,7 @@ def write_config(cfg):
         "escRampTimeLow", "escRampTimeHigh",
         "escBrakeSteps", "escAccelerationSteps",
         "hydraulicRampTime", "hydraulicDeadZone",
-        "autoIdleDelayMs", "autoIdleThrottlePercent", "driveExpo", "ledColorMode", "hydrostaticWhineVolumePercentage",
+        "autoIdleDelayMs", "autoIdleThrottlePercent", "driveExpo", "ledColorMode", "rattleDuckPercent", "hydrostaticWhineVolumePercentage",
         "reversingBeepMode",
         "masterVolume", "indicatorOn",
         "hiLoRatioPercent",
@@ -1262,6 +1262,9 @@ def spa_schema():
             [("0", "Reactive (engine load)"), ("2", "Green"), ("1", "Blue"), ("3", "Red"),
              ("4", "Amber"), ("6", "Cyan"), ("7", "Purple"), ("5", "White"), ("8", "Off")],
             "The DS4/DualSense light bar colour. Reactive = green idle → amber load → red bog; or pick a fixed colour."),
+        sld("rattleDuckPercent", "Rattle ducking", cfg.get("rattleDuckPercent", 30),
+            0, 60, 5, "%", "As the tracks speed up, pulls the engine back this much so the track "
+            "rattle/drive whine cut through. 0 = off (straight mix), 30 = engine drops to 70% at full pace."),
     ]}
 
     # Levels tab: only the volumes that matter on construction equipment. The engine sound packs

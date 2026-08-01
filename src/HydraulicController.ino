@@ -457,7 +457,11 @@ void IRAM_ATTR variablePlaybackTimer() {
   if (engineState == OFF) {
     value = dacOffset;
   } else {
-    int32_t v = ((a * 8 / 10) + (b / 2) + (c / 5) + (d / 5) + (e / 5) + f + g) * masterVolume / 100;
+    // Rattle ducking: as the tracks speed up, pull the engine mix back so the rattle/whine (DAC2)
+    // cut through instead of piling up. duck = 100 at rest → (100 - rattleDuckPercent) at full pace.
+    int32_t duck = 100 - (int32_t)rattleDuckPercent * constrain((int16_t)trackRattleVolume, (int16_t)0, (int16_t)100) / 100;
+    int32_t mix = (a * 8 / 10) + (b / 2) + (c / 5) + (d / 5) + (e / 5) + f + g;
+    int32_t v = mix * duck / 100 * masterVolume / 100;
     if (v > 72)       v = 72 + (v - 72) / 8;
     else if (v < -72) v = -72 + (v + 72) / 8;
     value = (uint8_t)constrain(v + dacOffset, 0, 255);
