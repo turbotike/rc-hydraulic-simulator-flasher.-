@@ -67,6 +67,7 @@ int16_t trackThrowScale = 100;  // % of servo throw the tracks use
 int16_t counterRotScale = 80;   // % throw allowed while counter-rotating (spin on the spot)
 int16_t driveDroopRefRpm = 450; // engine rpm for full track speed — throttle down = lower rpm = slower
 int16_t driveIdleCreepPercent = 28; // min track-speed % at idle throttle so it still creeps (0 = stall at idle)
+int16_t hydIdleFlowPercent = 30;    // min implement speed % at idle rpm — hydraulics also ride pump flow
 
 // --- Implement (proportional valve) model: [lift, tilt, angle, ripper] ---
 uint8_t implFlowWeight[4] = {40, 25, 25, 35};      // % pump load each function draws at full flow
@@ -84,7 +85,7 @@ int16_t lugKnockBoost   = 40;  // extra engine strain when lugging
 
 // --- Auto idle-down: drop to low idle when nothing's been touched, snap back on any input ---
 boolean  autoIdleEnabled = true;  // true = idle down automatically when parked
-uint16_t autoIdleDelayMs = 5250;  // no-activity time before idling down (ms)
+uint16_t autoIdleDelayMs = 7250;  // no-activity time before idling down (ms)
 int16_t  autoIdleThrottlePercent = 45; // throttle % it settles to when parked (0 = dead idle)
 
 // --- Drive-stick expo: softens the drive stick around centre for fine control. 0 = linear, 100 = full cubic ---
@@ -289,17 +290,21 @@ uint32_t sbusBaud = 100000;     // Standard 100000. Some receivers need 163863
 
 // --- Start sound ---
 volatile int startVolumePercentage = 140;
-#include "sounds/CaterpillarD6DozerStart.h"
+#include "sounds/startup.h"
+// Alias: auto-generated variable mapping
+const signed char* startSamples = startup;
+const unsigned int startSampleCount = startup_sampleCount;
+const unsigned int startSampleRate = startup_sampleRate;
 
 // --- Idle sound ---
 volatile int idleVolumePercentage = 80;
 volatile int engineIdleVolumePercentage = 80;
 volatile int fullThrottleVolumePercentage = 140;
-#include "sounds/CaterpillarD6DozerIdle.h"
+#include "sounds/idle.h"
 // Alias: auto-generated variable mapping
-const signed char* samples = caterpillarD6DozerIdleSamples;
-const unsigned int sampleCount = caterpillarD6DozerIdleSampleCount;
-const unsigned int sampleRate = caterpillarD6DozerIdleSampleRate;
+const signed char* samples = idle;
+const unsigned int sampleCount = idle_sampleCount;
+const unsigned int sampleRate = idle_sampleRate;
 
 // --- Rev sound ---
 #define REV_SOUND

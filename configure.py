@@ -425,7 +425,7 @@ def write_config(cfg):
         "escBrakeSteps", "escAccelerationSteps",
         "hydraulicRampTime", "hydraulicDeadZone",
         "autoIdleDelayMs", "autoIdleThrottlePercent", "driveExpo", "ledColorMode", "rattleDuckPercent", "hydrostaticWhineVolumePercentage",
-        "reversingBeepMode",
+        "reversingBeepMode", "hydIdleFlowPercent",
         "masterVolume", "indicatorOn",
         "hiLoRatioPercent",
         # Channel mapping
@@ -1265,6 +1265,9 @@ def spa_schema():
         sld("rattleDuckPercent", "Rattle ducking", cfg.get("rattleDuckPercent", 30),
             0, 60, 5, "%", "As the tracks speed up, pulls the engine back this much so the track "
             "rattle/drive whine cut through. 0 = off (straight mix), 30 = engine drops to 70% at full pace."),
+        sld("hydIdleFlowPercent", "Hydraulics at idle", cfg.get("hydIdleFlowPercent", 30),
+            5, 100, 5, "%", "Implement (blade/tilt/etc.) speed at idle rpm — the cylinders ride pump "
+            "flow, so they're slow at idle and quicken as you rev up. 100 = full speed regardless of rpm."),
     ]}
 
     # Levels tab: only the volumes that matter on construction equipment. The engine sound packs
