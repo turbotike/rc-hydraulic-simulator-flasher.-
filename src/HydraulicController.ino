@@ -2259,6 +2259,23 @@ void updateBattery() {
   }
 }
 
+// Start the two DAC playback timers (the 44 kHz audio interrupt engine). On gamepad builds this is
+// held off until a controller connects — a silent, interrupt-free chip pairs FAR more reliably.
+bool audioTimersStarted = false;
+void startAudioTimers() {
+  if (audioTimersStarted) return;
+  audioTimersStarted = true;
+  variableTimer = timerBegin(0, 20, true);
+  timerAttachInterrupt(variableTimer, &variablePlaybackTimer, true);
+  timerAlarmWrite(variableTimer, variableTimerTicks, true);
+  timerAlarmEnable(variableTimer);
+
+  fixedTimer = timerBegin(1, 20, true);
+  timerAttachInterrupt(fixedTimer, &fixedPlaybackTimer, true);
+  timerAlarmWrite(fixedTimer, variableTimerTicks, true);
+  timerAlarmEnable(fixedTimer);
+}
+
 // ════════════════════════════════════════════════════════════════
 // SETUP
 // ════════════════════════════════════════════════════════════════
@@ -2382,16 +2399,11 @@ void setup() {
     if (v > 5.5f) detectCells(v); else Serial.println("Battery: on USB / no pack — monitor idle.");
   }
 
-  // Audio timers
-  variableTimer = timerBegin(0, 20, true);
-  timerAttachInterrupt(variableTimer, &variablePlaybackTimer, true);
-  timerAlarmWrite(variableTimer, variableTimerTicks, true);
-  timerAlarmEnable(variableTimer);
-
-  fixedTimer = timerBegin(1, 20, true);
-  timerAttachInterrupt(fixedTimer, &fixedPlaybackTimer, true);
-  timerAlarmWrite(fixedTimer, variableTimerTicks, true);
-  timerAlarmEnable(fixedTimer);
+  // Audio timers. On RC builds, start now. On gamepad builds, HOLD OFF until a controller connects
+  // (see loop) so the 44 kHz interrupt storm doesn't jitter the Bluetooth pairing/handshake.
+#if !defined GAMEPAD_MODE
+  startAudioTimers();
+#endif
 
   // Start Core 0 task
   xTaskCreatePinnedToCore(Task1code, "Task1", 8192, NULL, 1, &Task1, 0);
@@ -2414,6 +2426,9 @@ void loop() {
 #if defined GAMEPAD_MODE
   readGamepadCommands();
   gamepadRepairCheck();   // hold BOOT ~3s to forget bonds and re-pair a new controller
+  // Fire up the audio engine only once a controller is actually connected — keeps the chip quiet
+  // and interrupt-free during pairing, which is when Bluetooth is most easily disrupted.
+  if (gamepadConnected && !audioTimersStarted) startAudioTimers();
 #else
   readSbusCommands();
   readIbusCommands();
