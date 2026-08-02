@@ -77,8 +77,6 @@ int16_t driveFlowWeight   = 60;  // how hard the tracks load the pump/engine
 int16_t pumpFlowCapacity  = 140; // total flow at ref rpm — the governor bogs when demand nears this
 
 // --- Engine governor (dozer): holds rpm, sags under load, lugs when bogged ---
-int16_t idleRpm         = 120; // base idle the engine holds at zero throttle. Load sags rpm BELOW
-                               //   this, so working the pump at idle actually bogs/lugs the engine.
 int16_t sagAttack       = 6;   // rpm/tick the governor bogs under load (fast)
 int16_t sagRecovery     = 3;   // rpm/tick it claws rpm back (slower)
 int16_t maxSagRpm       = 220; // max rpm droop at full pump demand

@@ -1101,12 +1101,9 @@ void engineMassSimulation() {
                           0, max((int16_t)1, pumpFlowCapacity), 0, maxSagRpm);
   if (rpmSag < targetSag)      { rpmSag += sagAttack;   if (rpmSag > targetSag) rpmSag = targetSag; }
   else if (rpmSag > targetSag) { rpmSag -= sagRecovery; if (rpmSag < targetSag) rpmSag = targetSag; }
-  // Engine rpm = your THROTTLE setting (never below idle), MINUS load sag. rpm is the pump's flow rate;
-  // the drive stick is the swashplate displacement — track speed = flow = rpm × displacement.
-  // Flooring the setpoint at idleRpm is what lets a load at idle bog the engine BELOW idle (a real
-  // lug), instead of idle sitting at 0 with no room to sag.
-  int32_t rpmSetpoint = max((int32_t)currentThrottle, (int32_t)idleRpm);
-  targetRpm = constrain(rpmSetpoint - rpmSag, 0, 500);
+  // Engine rpm = your THROTTLE setting (minus load sag). rpm is the pump's flow rate; the drive stick
+  // is the swashplate displacement — track speed = flow = rpm × displacement (done in hydrostaticModel).
+  targetRpm = constrain((int32_t)currentThrottle - rpmSag, 0, 500);
   engineLugging = (currentRpm < lugRpmThreshold && totalFlowDemand > pumpFlowCapacity / 2);
 
 #elif defined EXCAVATOR_MODE || defined BACKHOE_MODE
@@ -1136,8 +1133,16 @@ void engineMassSimulation() {
 
   currentRpm = constrain(currentRpm, minRpm, maxRpm);
 
-  // Calculate sample rate from RPM
-  engineSampleRate = map(currentRpm, minRpm, maxRpm, maxSampleInterval, minSampleInterval);
+  // Calculate sample rate from RPM. Idle is unchanged, BUT the engine NOTE is allowed to bog a little
+  // below idle under load — so working the pump at idle gives an audible dip/lug even though the real
+  // rpm is already floored at 0. This is sound-only; currentRpm (tracks/drive) is not touched.
+  int32_t soundRpm = currentRpm;
+#if defined DOZER_MODE
+  int32_t belowIdle = (int32_t)rpmSag - currentThrottle; // >0 when load exceeds the idle rpm headroom
+  if (belowIdle > 0) soundRpm -= belowIdle;              // dip the pitch below idle = bog
+  if (soundRpm < -(int32_t)maxSagRpm) soundRpm = -(int32_t)maxSagRpm;
+#endif
+  engineSampleRate = map(soundRpm, minRpm, maxRpm, maxSampleInterval, minSampleInterval);
 
   // Wastegate trigger on rapid throttle drop
   static int32_t lastRpm = 0;
