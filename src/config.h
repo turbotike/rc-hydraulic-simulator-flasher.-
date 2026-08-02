@@ -77,6 +77,8 @@ int16_t driveFlowWeight   = 60;  // how hard the tracks load the pump/engine
 int16_t pumpFlowCapacity  = 140; // total flow at ref rpm — the governor bogs when demand nears this
 
 // --- Engine governor (dozer): holds rpm, sags under load, lugs when bogged ---
+int16_t idleRpm         = 120; // base idle the engine holds at zero throttle. Load sags rpm BELOW
+                               //   this, so working the pump at idle actually bogs/lugs the engine.
 int16_t sagAttack       = 6;   // rpm/tick the governor bogs under load (fast)
 int16_t sagRecovery     = 3;   // rpm/tick it claws rpm back (slower)
 int16_t maxSagRpm       = 220; // max rpm droop at full pump demand
@@ -302,11 +304,11 @@ uint8_t batteryCellsOverride  = 0;     // 0 = auto-detect S-count at boot; or fo
 
 // --- Start sound ---
 volatile int startVolumePercentage = 140;
-#include "sounds/startup.h"
+#include "sounds/d11_startup.h"
 // Alias: auto-generated variable mapping
-const signed char* startSamples = startup;
-const unsigned int startSampleCount = startup_sampleCount;
-const unsigned int startSampleRate = startup_sampleRate;
+const signed char* startSamples = d11startupSamples;
+const unsigned int startSampleCount = d11startupSampleCount;
+const unsigned int startSampleRate = d11startupSampleRate;
 
 // --- Idle sound ---
 volatile int idleVolumePercentage = 80;
@@ -326,11 +328,11 @@ volatile const uint16_t revSwitchPoint = 100;
 volatile const uint16_t idleEndPoint = 400;
 volatile const uint16_t idleVolumeProportionPercentage = 90;
 #ifdef REV_SOUND
-#include "sounds/CaterpillarD6DozerIdle3.h"
+#include "sounds/idle.h"
 // Alias: auto-generated variable mapping
-const signed char* revSamples = caterpillarD6DozerIdle3Samples;
-const unsigned int revSampleCount = caterpillarD6DozerIdle3SampleCount;
-const unsigned int revSampleRate = caterpillarD6DozerIdle3SampleRate;
+const signed char* revSamples = idle;
+const unsigned int revSampleCount = idle_sampleCount;
+const unsigned int revSampleRate = idle_sampleRate;
 #endif
 
 // --- Diesel knock ---
@@ -450,7 +452,11 @@ volatile int bucketRattleVolumePercentage = 160;
 
 // --- Spoken "Low battery" warning (played through the speaker when the pack runs low) ---
 volatile int lowBatteryVolumePercentage = 110;
-#include "sounds/lowBattery.h"
+#include "sounds/shake_hands_.h"
+// Alias: auto-generated variable mapping
+const signed char* lowBatterySamples = shakehandsSamples;
+const unsigned int lowBatterySampleCount = shakehandsSampleCount;
+const unsigned int lowBatterySampleRate = shakehandsSampleRate;
 
 // Auto-injected for parkingBrakeSound (was missing) — using idle sound
 const signed char* parkingBrakeSamples = samples;

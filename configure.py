@@ -428,7 +428,7 @@ def write_config(cfg):
         "escBrakeSteps", "escAccelerationSteps",
         "hydraulicRampTime", "hydraulicDeadZone",
         "autoIdleDelayMs", "autoIdleThrottlePercent", "driveExpo", "ledColorMode", "rattleDuckPercent", "hydrostaticWhineVolumePercentage",
-        "reversingBeepMode", "hydIdleFlowPercent",
+        "reversingBeepMode", "hydIdleFlowPercent", "idleRpm",
         "masterVolume", "indicatorOn",
         "hiLoRatioPercent",
         # Channel mapping
@@ -1274,6 +1274,9 @@ def spa_schema():
         sld("hydIdleFlowPercent", "Hydraulics at idle", cfg.get("hydIdleFlowPercent", 30),
             5, 100, 5, "%", "Implement (blade/tilt/etc.) speed at idle rpm — the cylinders ride pump "
             "flow, so they're slow at idle and quicken as you rev up. 100 = full speed regardless of rpm."),
+        sld("idleRpm", "Idle RPM", cfg.get("idleRpm", 120),
+            0, 300, 5, "", "Base idle the engine holds at zero throttle (of 500). Load sags rpm BELOW "
+            "this, so working the pump at idle actually bogs/lugs the engine. Higher = higher idle."),
     ]}
 
     # Levels tab: only the volumes that matter on construction equipment. The engine sound packs
