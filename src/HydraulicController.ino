@@ -1314,22 +1314,9 @@ void hydrostaticModel() {
   if (millis() - last < 20) return;
   last = millis();
 #if MACHINE_TRACKED
-  // ESC re-arm: brushed track ESCs need to SEE a real neutral before they'll flip fwd<->reverse. When
-  // the commanded direction reverses while we're still moving, snap to a clean, HELD neutral output for
-  // a beat so the ESC re-arms — then release into the new direction. Saves recentering the stick.
-  static uint32_t reverseDwellUntil = 0;
-  static int8_t lastDir = 0;
-  int32_t cmdSum = (int32_t)cmdTrackL + cmdTrackR;
-  int8_t cmdDir = (cmdSum > 140) ? 1 : (cmdSum < -140) ? -1 : 0;
-  bool moving = (abs((int)swashL) + abs((int)swashR)) > 60;
-  if (cmdDir != 0 && lastDir != 0 && cmdDir != lastDir && moving) reverseDwellUntil = millis() + 250;
-  if (cmdDir != 0) lastDir = cmdDir;
-  if (millis() < reverseDwellUntil) {           // hold a true neutral so the ESC accepts the reverse
-    swashL = 0; swashR = 0;
-    actualTrackL = 0; actualTrackR = 0;
-    driveFlowDemand = 0;
-    return;
-  }
+  // Swashplate ramps straight from forward through neutral to reverse — no dwell. (The old ESC
+  // re-arm neutral-hold only helps brake/reverse ESCs; with no-brake ESCs it just stalled reverse
+  // until you re-centered. No-brake ESCs reverse instantly, so let the ramp flow through.)
   swashL = rampToward(swashL, cmdTrackL, swashAccelRate, swashDecelRate);
   swashR = rampToward(swashR, cmdTrackR, swashAccelRate, swashDecelRate);
   // Full hydrostat: track speed = pump flow = swashplate displacement (swash) × engine-rpm fraction.
