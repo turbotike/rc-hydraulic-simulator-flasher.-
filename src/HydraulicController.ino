@@ -1270,7 +1270,13 @@ int16_t actualTrackL = 0, actualTrackR = 0; // after droop, ±500 → servo
 int16_t driveFlowDemand = 0;                // track pump load (0..~60), set in hydrostaticModel
 
 static int16_t rampToward(int16_t cur, int16_t target, int16_t accel, int16_t decel) {
-  int16_t rate = (abs(target) > abs(cur)) ? accel : decel; // stroking vs destroking
+  // Stroke (pushing the swash AWAY from neutral) uses the gentle accel; destroke (returning TOWARD
+  // neutral) uses the faster decel. Only count it as stroking when the target is on the SAME side of
+  // zero AND bigger — so a forward↔reverse change destrokes to 0 fast (decel) before stroking out the
+  // other way, instead of crawling the whole reversal at the slow accel rate. (The old test was just
+  // |target|>|cur|, which picked slow accel for the entire reversal → laggy "won't go into reverse".)
+  bool stroking = ((cur >= 0) == (target >= 0)) && (abs(target) > abs(cur));
+  int16_t rate = stroking ? accel : decel;
   if (cur < target) { cur += rate; if (cur > target) cur = target; }
   else if (cur > target) { cur -= rate; if (cur < target) cur = target; }
   return cur;

@@ -61,8 +61,8 @@ uint8_t CH_DZ_DRIVE    = 2;   // (mix mode) forward / reverse axis
 uint8_t CH_DZ_STEER    = 1;   // (mix mode) left / right axis
 
 // --- Hydrostatic drive tuning (dual-path pump→motor feel) ---
-int16_t swashAccelRate  = 15;   // swashplate stroke toward command, per 20ms tick (±500 span)
-int16_t swashDecelRate  = 25;   // destroke back toward neutral (faster than accel)
+int16_t swashAccelRate  = 15;   // swashplate stroke toward command, per 20ms tick (±500 span). Lower = smoother/lazier pull-away.
+int16_t swashDecelRate  = 40;   // destroke back toward neutral (higher = snappier stops AND quicker into reverse)
 int16_t trackThrowScale = 100;  // % of servo throw the tracks use
 int16_t counterRotScale = 80;   // % throw allowed while counter-rotating (spin on the spot)
 int16_t pivotThreshold  = 80;   // drive effort (of 500) above which turns ARC instead of spinning —
