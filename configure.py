@@ -427,8 +427,8 @@ def write_config(cfg):
         "escRampTimeLow", "escRampTimeHigh",
         "escBrakeSteps", "escAccelerationSteps",
         "hydraulicRampTime", "hydraulicDeadZone",
-        "autoIdleDelayMs", "autoIdleThrottlePercent", "driveExpo", "ledColorMode", "rattleDuckPercent", "hydrostaticWhineVolumePercentage",
-        "reversingBeepMode", "hydIdleFlowPercent",
+        "driveExpo", "ledColorMode", "rattleDuckPercent", "hydrostaticWhineVolumePercentage",
+        "reversingBeepMode",
         "masterVolume", "indicatorOn",
         "hiLoRatioPercent",
         # Channel mapping
@@ -452,8 +452,7 @@ def write_config(cfg):
 
     # Boolean consts
     bool_vars = ["automatic", "doubleClutch", "shiftingAutoThrottle", "INDICATOR_DIR",
-                 "hiLoEnabled", "hiLoDefaultHigh", "autoEngineStart",
-                 "autoIdleEnabled"]
+                 "hiLoEnabled", "hiLoDefaultHigh", "autoEngineStart"]
     for var in bool_vars:
         if var in cfg:
             # Normalize: accept bool, string, or int → always "true"/"false"
@@ -1249,15 +1248,6 @@ def spa_schema():
             [("DRIVE_SINGLE_STICK_MIX", "Single joystick (mixed to both tracks)"),
              ("DRIVE_DUAL_STICK", "Dual stick (one per track)")],
             "How the tracks are driven."),
-        sel("autoIdleEnabled", "Auto idle-down", cfg.get("autoIdleEnabled"),
-            [("true", "On — settle to idle when parked"), ("false", "Off — hold throttle")],
-            "Eases the engine down to low idle after a few seconds with nothing touched, and snaps "
-            "back to your set rpm the instant you move a stick or function."),
-        sld("autoIdleDelayMs", "Idle-down delay", cfg.get("autoIdleDelayMs", 3000),
-            500, 10000, 250, " ms", "How long with no input before it idles down."),
-        sld("autoIdleThrottlePercent", "Idle-down level", cfg.get("autoIdleThrottlePercent", 45),
-            0, 80, 5, "%", "Throttle it settles to when parked. 0 = drops to dead idle; higher = holds "
-            "a faster idle (e.g. 45% keeps the revs up)."),
         sld("driveExpo", "Drive stick expo", cfg.get("driveExpo", 30),
             0, 100, 5, "%", "Softens the drive stick around centre so small moves are gentle for "
             "fine control; full throw still reaches max. 0 = linear."),
@@ -1271,9 +1261,6 @@ def spa_schema():
         sld("rattleDuckPercent", "Rattle ducking", cfg.get("rattleDuckPercent", 30),
             0, 60, 5, "%", "As the tracks speed up, pulls the engine back this much so the track "
             "rattle/drive whine cut through. 0 = off (straight mix), 30 = engine drops to 70% at full pace."),
-        sld("hydIdleFlowPercent", "Hydraulics at idle", cfg.get("hydIdleFlowPercent", 30),
-            5, 100, 5, "%", "Implement (blade/tilt/etc.) speed at idle rpm — the cylinders ride pump "
-            "flow, so they're slow at idle and quicken as you rev up. 100 = full speed regardless of rpm."),
     ]}
 
     # Levels tab: only the volumes that matter on construction equipment. The engine sound packs
