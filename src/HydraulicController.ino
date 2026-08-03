@@ -1560,8 +1560,22 @@ void mcpwmOutput() {
   // Implement slots (valveCmd) → board headers: [0]=ESC(33), [1]=CH4(27), [2]=CH3(14), [3]=32.
   // im1 (slot 2, tilt) and im3 (slot 4, ripper) are swapped onto GPIO27/GPIO32 so the ripper
   // lands on the GPIO32 header and the three blade functions sit on ESC/CH3/CH4.
-  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_A, im0);    // GPIO33  (ESC hdr)
-  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_B, im3);    // GPIO32  (ripper)
+  // Hydraulic mode: GPIO33 (the ESC header) drives a PUMP ESC that follows engine rpm instead of an
+  // implement. Off (min throttle) while the engine isn't running — which also arms a brushless ESC —
+  // then idles up to pumpIdlePercent and scales to full with rpm. Real hydraulics: the pump idles low
+  // and roars when you rev, and your control valves stay on the receiver.
+  if (pumpFromRpm) {
+    uint16_t pumpUs = 1000; // armed / off
+    if (engineRunning && millis() >= pumpArmMs) {
+      int32_t pct = constrain((int32_t)currentRpm * 100 / max((int16_t)1, maxRpm), 0, 100);
+      if (pct < pumpIdlePercent) pct = pumpIdlePercent; // never below the idle/cogging floor while running
+      pumpUs = 1000 + pct * 1000 / 100;
+    }
+    mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_A, pumpUs); // GPIO33 = pump ESC
+  } else {
+    mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_A, im0);    // GPIO33  (ESC hdr / implement)
+  }
+  mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_B, im3);    // GPIO32  (ripper / swing)
   mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_1, MCPWM_OPR_A, im2);    // GPIO14  (CH3 hdr)
   mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_1, MCPWM_OPR_B, im1);    // GPIO27  (CH4 hdr)
 }

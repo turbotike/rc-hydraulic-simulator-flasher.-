@@ -72,6 +72,14 @@ int16_t driveDroopRefRpm = 380; // engine rpm for full track speed — lower = r
 int16_t driveIdleCreepPercent = 28; // min track-speed % at idle throttle so it still creeps (0 = stall at idle)
 int16_t hydIdleFlowPercent = 50;    // min implement speed % at idle rpm — hydraulics also ride pump flow
 
+// --- Hydraulic mode: drive a real pump ESC from engine rpm (GPIO33 = the ESC header) ---
+// For real-hydraulics builds (e.g. a Burnie CAT 349): the board runs the pump + electric drive/swing,
+// your hydraulic control valves stay on the receiver's PWM. RC only (no gamepad). Pump idles low and
+// revs up with the throttle; off (and armed) while the engine's stopped — brushless-ESC friendly.
+boolean  pumpFromRpm     = false; // true = "Hydraulic mode" — GPIO33 outputs the rpm-driven pump ESC
+int16_t  pumpIdlePercent = 25;    // pump throttle % at engine idle (keep above the brushless cogging point)
+uint16_t pumpArmMs       = 3000;  // hold pump at minimum this long at boot so a brushless ESC arms
+
 // --- Implement (proportional valve) model: [lift, tilt, angle, ripper] ---
 uint8_t implFlowWeight[4] = {40, 25, 25, 35};      // % pump load each function draws at full flow
 
@@ -96,7 +104,7 @@ int16_t driveExpo = 55;
 
 // --- Rattle ducking: as the tracks get busy, pull the engine back this % so the rattle/whine cut
 //     through instead of everything piling up. 0 = off, e.g. 30 = engine drops to 70% at full pace ---
-int16_t rattleDuckPercent = 30;
+int16_t rattleDuckPercent = 45;
 
 // --- Controller lightbar colour (gamepad): 0 = reactive (green idle → amber load → red bog),
 //     1=blue 2=green 3=red 4=amber 5=white 6=cyan 7=purple 8=off ---
@@ -430,11 +438,7 @@ const unsigned int hydraulicFlowSampleRate = reliefSquealSampleRate;
 
 // --- Track rattle ---
 volatile int trackRattleVolumePercentage = 155;  // sane loud level; the soft limiter has room now
-#include "sounds/D6TrackRattle.h"
-// Alias: auto-generated variable mapping
-const signed char* trackRattleSamples = trackRattle2Samples;
-const unsigned int trackRattleSampleCount = trackRattle2SampleCount;
-const unsigned int trackRattleSampleRate = trackRattle2SampleRate;
+#include "sounds/Caterpillar323TrackRattle.h"
 
 // --- Track rattle 2 (periodic clank, for tracked machines) ---
 #define TRACK_RATTLE_2
@@ -463,6 +467,11 @@ const unsigned int lowBatterySampleRate = shakehandsSampleRate;
 const signed char* parkingBrakeSamples = samples;
 const unsigned int parkingBrakeSampleCount = sampleCount;
 const unsigned int parkingBrakeSampleRate = sampleRate;
+
+// Auto-injected for trackRattle2Sound (was missing) — using idle sound
+const signed char* trackRattle2Samples = samples;
+const unsigned int trackRattle2SampleCount = sampleCount;
+const unsigned int trackRattle2SampleRate = sampleRate;
 
 // ============================================================================
 // RC SIGNAL TUNING

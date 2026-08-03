@@ -787,6 +787,16 @@ function renderFlashPane() {
 }
 
 // ---- Controls (RC transmitter vs game controller) ----
+// Hydraulic mode (Machine tab, pumpFromRpm) forces an RC receiver — a Bluetooth pad can't run the
+// hydraulic valves. Read the toggle's live value (including an unsaved change) from the schema.
+function isHydraulicMode() {
+  for (const tab of (state.schema.tabs || [])) {
+    for (const c of (tab.controls || [])) {
+      if (c.name === "pumpFromRpm") return !!effective(tab.file, c).enabled;
+    }
+  }
+  return false;
+}
 function renderGamepadPane() {
   const pane = el("div", "tabpane");
   pane.innerHTML = `
@@ -816,7 +826,10 @@ function buildGamepadUI(root) {
   const c = gpCfg;
   root.innerHTML = "";
 
-  // --- Mode picker: two big, obvious cards ---
+  const hydraulic = isHydraulicMode();
+  if (hydraulic && c.mode === "gamepad") { c.mode = "webui"; gpTouched = true; markDirty(); } // real hydraulic build is RC only
+
+  // --- Mode picker: two big, obvious cards (gamepad hidden in hydraulic mode) ---
   const modeWrap = el("div", "gpmodes");
   const mk = (id, icon, title, sub) => {
     const card = el("div", "gpmode" + (c.mode === id ? " sel" : ""));
@@ -824,11 +837,12 @@ function buildGamepadUI(root) {
     card.onclick = () => { c.mode = id; buildGamepadUI(root); };
     return card;
   };
-  modeWrap.append(
-    mk("webui", "🎚️", "RC transmitter", "Drive with your normal RC radio. Pick your protocol below."),
-    mk("gamepad", "🎮", "Game controller", "Drive with a PS4 / PS5 / Xbox pad over Bluetooth.")
-  );
+  modeWrap.append(mk("webui", "🎚️", "RC transmitter", "Drive with your normal RC radio. Pick your protocol below."));
+  if (!hydraulic) modeWrap.append(mk("gamepad", "🎮", "Game controller", "Drive with a PS4 / PS5 / Xbox pad over Bluetooth."));
   root.appendChild(modeWrap);
+
+  if (hydraulic) root.appendChild(el("div", "gpbadge",
+    "🔧 Hydraulic mode is on (Machine tab) — this build runs on the RC receiver, so gamepad is disabled. Turn Hydraulic mode off to use a controller."));
 
   const gpOnly = c.mode === "gamepad";
   if (gpOnly) {

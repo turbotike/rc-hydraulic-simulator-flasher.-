@@ -200,6 +200,10 @@ def read_config():
     m = re.search(r'boolean\s+autoIdleEnabled\s*=\s*(true|false)', text)
     cfg["autoIdleEnabled"] = m.group(1) if m else "true"
 
+    # Hydraulic mode: real pump driven from engine rpm (RC only — no gamepad)
+    m = re.search(r'boolean\s+pumpFromRpm\s*=\s*(true|false)', text)
+    cfg["pumpFromRpm"] = m.group(1) if m else "false"
+
     # SBUS settings
     m = re.search(r'boolean\s+sbusInverted\s*=\s*(true|false)', text)
     cfg["sbusInverted"] = m.group(1) if m else "true"
@@ -452,7 +456,7 @@ def write_config(cfg):
 
     # Boolean consts
     bool_vars = ["automatic", "doubleClutch", "shiftingAutoThrottle", "INDICATOR_DIR",
-                 "hiLoEnabled", "hiLoDefaultHigh", "autoEngineStart"]
+                 "hiLoEnabled", "hiLoDefaultHigh", "autoEngineStart", "pumpFromRpm"]
     for var in bool_vars:
         if var in cfg:
             # Normalize: accept bool, string, or int → always "true"/"false"
@@ -1233,6 +1237,11 @@ def spa_schema():
                 "saveKind": "num", "value": value, "min": mn, "max": mx,
                 "step": step, "suffix": suffix}
 
+    def tgl(name, label, value, desc=""):
+        on = (value is True or str(value).lower() == "true")
+        return {"name": name, "label": label, "desc": desc, "control": "toggle",
+                "saveKind": "bool_var", "enabled": on, "value": ("true" if on else "false")}
+
     def pretty(k):
         s = k.replace("VolumePercentage", "").replace("Volume", "")
         s = re.sub(r'([a-z0-9])([A-Z])', r'\1 \2', s).strip()
@@ -1244,6 +1253,11 @@ def spa_schema():
              ("DOZER_MODE", "Dozer"), ("SKIDSTEER_MODE", "Skid Steer"), ("GRADER_MODE", "Grader"),
                     ("BACKHOE_MODE", "Backhoe Loader")],
             "Which machine this firmware drives."),
+        tgl("pumpFromRpm", "Hydraulic mode (real pump)", cfg.get("pumpFromRpm", "false"),
+            "Real-hydraulics builds (e.g. a Burnie CAT 349): GPIO33 drives a pump ESC from the engine "
+            "rpm — idles low, revs up with the throttle, armed at boot for a brushless ESC. The board "
+            "runs the pump + electric drive/swing (all rpm-linked); your hydraulic control valves stay "
+            "on the receiver's PWM. RC only — turning this on disables gamepad on the Controls tab."),
         sel("driveMode", "Dozer drive", cfg.get("driveMode"),
             [("DRIVE_SINGLE_STICK_MIX", "Single joystick (mixed to both tracks)"),
              ("DRIVE_DUAL_STICK", "Dual stick (one per track)")],
@@ -2421,6 +2435,19 @@ function onMachineChange() {
   }
 }
 
+// Hydraulic mode = real pump driven from engine rpm, which needs the RC receiver — so it forces the
+// Controls tab off gamepad and hides that option (a Bluetooth pad can't run the hydraulic valves).
+function onHydraulicModeChange(on) {
+  CFG.pumpFromRpm = on ? 'true' : 'false';
+  if (on && CFG.rcProtocol === 'GAMEPAD_MODE') CFG.rcProtocol = 'SBUS_COMMUNICATION';
+  const rcPanel = document.getElementById('p-rc');
+  if (rcPanel) {
+    const wasActive = rcPanel.classList.contains('active');
+    rcPanel.outerHTML = panelRC();
+    if (wasActive) document.getElementById('p-rc').classList.add('active');
+  }
+}
+
 function panelMachine() {
   return `<div class="panel" id="p-machine">
     <div class="section-title">Machine Type</div>
@@ -2441,6 +2468,14 @@ function panelMachine() {
         placeholder="${MACHINE_NAMES[CFG.machineType]||''}">
     </div>
     <p class="hint">Override the display name shown in the top bar (leave blank for default)</p>
+
+    <div class="section-title">Hydraulic Mode</div>
+    <div style="display:flex;align-items:center;gap:8px;margin:6px 0;">
+      <label class="sw"><input type="checkbox" ${(CFG.pumpFromRpm==='true'||CFG.pumpFromRpm===true)?'checked':''}
+        onchange="onHydraulicModeChange(this.checked)"><span class="sl"></span></label>
+      <span style="font-size:12px;color:var(--text);">Real hydraulic pump (driven from engine RPM)</span>
+    </div>
+    <p class="hint">For real-hydraulics builds (e.g. a Burnie CAT 349): <b>GPIO33 drives your pump ESC from the engine RPM</b> — idles low, revs up with the throttle, armed at boot for a brushless ESC. The board runs the pump + electric drive/swing (all RPM-linked); your hydraulic control valves stay on the receiver's PWM. <b>RC only</b> — turning this on disables gamepad on the Controls tab.</p>
 
     <div class="section-title">Vehicle Profiles</div>
     <p class="hint" style="margin-bottom:6px;">Current: <strong id="currentVehicleName">${_currentVehicle || '(unsaved)'}</strong></p>
@@ -2560,19 +2595,22 @@ function panelSounds() {
 }
 
 function panelRC() {
+  const hyd = (CFG.pumpFromRpm === 'true' || CFG.pumpFromRpm === true);
+  const inputOpts = [
+    {value:'SBUS_COMMUNICATION', label:'SBUS'},
+    {value:'IBUS_COMMUNICATION', label:'IBUS'},
+    {value:'SUMD_COMMUNICATION', label:'SUMD'},
+    {value:'PPM_COMMUNICATION', label:'PPM'},
+    {value:'PWM_COMMUNICATION', label:'PWM'},
+  ];
+  if (!hyd) inputOpts.push({value:'GAMEPAD_MODE', label:'🎮 Gamepad (PS4/PS5/Xbox)'});
   return `<div class="panel" id="p-rc">
     <div class="section-title">Input Source</div>
-    ${radioGroup('rcProtocol', [
-      {value:'SBUS_COMMUNICATION', label:'SBUS'},
-      {value:'IBUS_COMMUNICATION', label:'IBUS'},
-      {value:'SUMD_COMMUNICATION', label:'SUMD'},
-      {value:'PPM_COMMUNICATION', label:'PPM'},
-      {value:'PWM_COMMUNICATION', label:'PWM'},
-      {value:'GAMEPAD_MODE', label:'🎮 Gamepad (PS4/PS5/Xbox)'},
-    ])}
+    ${radioGroup('rcProtocol', inputOpts)}
     <p class="hint" style="color:var(--dim);font-size:12px;margin:6px 0 0">
-      Gamepad drives over Bluetooth (Bluepad32) — the flasher builds it on the Bluepad32 core
-      automatically. One radio: pick Gamepad <b>or</b> an RC bus, not both.</p>
+      ${hyd
+        ? '🔧 <b>Hydraulic mode is on</b> — gamepad is disabled. A real hydraulic build runs on the RC receiver (the receiver drives your control valves; the board runs the pump + drive/swing). Turn Hydraulic mode off on the Machine tab to use a gamepad.'
+        : 'Gamepad drives over Bluetooth (Bluepad32) — the flasher builds it on the Bluepad32 core automatically. One radio: pick Gamepad <b>or</b> an RC bus, not both.'}</p>
     <div class="section-title" style="margin-top:22px">Dozer Drive</div>
     ${radioGroup('driveMode', [
       {value:'DRIVE_SINGLE_STICK_MIX', label:'Single joystick (mixed to both tracks)'},
