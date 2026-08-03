@@ -1287,12 +1287,24 @@ void driveMixer() {
   if (drive < 0) steer = -steer; // reverse: flip steer so it turns the way the stick points (like a car)
   int32_t l = drive + steer;
   int32_t r = drive - steer;
-  int32_t m = max(labs(l), labs(r));
-  if (m > 500) { l = l * 500 / m; r = r * 500 / m; } // normalize, keep turn ratio
-  if (l != 0 && r != 0 && ((l > 0) != (r > 0))) {     // counter-rotating pivot
+  // Turn behaviour depends on whether you're MOVING or CENTERED:
+  //  • Driving (drive stick pushed past the pivot zone): keep both tracks on the drive's side, so a
+  //    turn just slows the inside track — arcing, dropping to a stop at most, but NEVER flipping into
+  //    reverse. This kills the darting/spinning "counter-steer" while you drive and while reversing.
+  //  • Centered (drive stick near neutral): allow full counter-rotation so you can still spin on the
+  //    spot on purpose.
+  if (drive > pivotThreshold) {          // moving forward → no track goes reverse
+    if (l < 0) l = 0;
+    if (r < 0) r = 0;
+  } else if (drive < -pivotThreshold) {  // moving in reverse → no track goes forward
+    if (l > 0) l = 0;
+    if (r > 0) r = 0;
+  } else if (l != 0 && r != 0 && ((l > 0) != (r > 0))) { // centered → counter-rotate pivot
     l = l * counterRotScale / 100;
     r = r * counterRotScale / 100;
   }
+  int32_t m = max(labs(l), labs(r));
+  if (m > 500) { l = l * 500 / m; r = r * 500 / m; } // normalize, keep turn ratio
   cmdTrackL = l;
   cmdTrackR = r;
   #else // dual-track: one channel per track (excavator, skid steer, dozer dual-stick)

@@ -65,6 +65,9 @@ int16_t swashAccelRate  = 15;   // swashplate stroke toward command, per 20ms ti
 int16_t swashDecelRate  = 25;   // destroke back toward neutral (faster than accel)
 int16_t trackThrowScale = 100;  // % of servo throw the tracks use
 int16_t counterRotScale = 80;   // % throw allowed while counter-rotating (spin on the spot)
+int16_t pivotThreshold  = 80;   // drive effort (of 500) above which turns ARC instead of spinning —
+                                //   below it (stick centered) you can pivot in place. Lower = less
+                                //   counter-steer while driving; 500 = always allow spin (old feel).
 int16_t driveDroopRefRpm = 380; // engine rpm for full track speed — lower = reaches full speed sooner
 int16_t driveIdleCreepPercent = 28; // min track-speed % at idle throttle so it still creeps (0 = stall at idle)
 int16_t hydIdleFlowPercent = 50;    // min implement speed % at idle rpm — hydraulics also ride pump flow
@@ -426,7 +429,7 @@ const unsigned int hydraulicFlowSampleRate = reliefSquealSampleRate;
 #include "sounds/reliefSqueal.h"
 
 // --- Track rattle ---
-volatile int trackRattleVolumePercentage = 100;  // sane loud level; the soft limiter has room now
+volatile int trackRattleVolumePercentage = 155;  // sane loud level; the soft limiter has room now
 #include "sounds/D6TrackRattle.h"
 // Alias: auto-generated variable mapping
 const signed char* trackRattleSamples = trackRattle2Samples;

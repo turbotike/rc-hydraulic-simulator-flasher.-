@@ -428,7 +428,7 @@ def write_config(cfg):
         "escBrakeSteps", "escAccelerationSteps",
         "hydraulicRampTime", "hydraulicDeadZone",
         "autoIdleDelayMs", "autoIdleThrottlePercent", "driveExpo", "ledColorMode", "rattleDuckPercent", "hydrostaticWhineVolumePercentage",
-        "reversingBeepMode", "hydIdleFlowPercent",
+        "reversingBeepMode", "hydIdleFlowPercent", "pivotThreshold",
         "masterVolume", "indicatorOn",
         "hiLoRatioPercent",
         # Channel mapping
@@ -1274,6 +1274,10 @@ def spa_schema():
         sld("hydIdleFlowPercent", "Hydraulics at idle", cfg.get("hydIdleFlowPercent", 30),
             5, 100, 5, "%", "Implement (blade/tilt/etc.) speed at idle rpm — the cylinders ride pump "
             "flow, so they're slow at idle and quicken as you rev up. 100 = full speed regardless of rpm."),
+        sld("pivotThreshold", "Pivot zone", cfg.get("pivotThreshold", 80),
+            0, 500, 10, "", "How much you can be driving before a turn ARCS instead of spinning in "
+            "place. Lower = tracks never counter-rotate unless the stick is centered (kills the "
+            "darting/counter-steer while driving & reversing). 500 = always allow spin-on-the-spot."),
     ]}
 
     # Levels tab: only the volumes that matter on construction equipment. The engine sound packs
