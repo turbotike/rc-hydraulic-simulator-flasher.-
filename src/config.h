@@ -73,8 +73,9 @@ int16_t pivotThreshold  = 80;   // drive effort (of 500) above which turns ARC i
                                 //   counter-steer while driving; 500 = always allow spin (old feel).
 int16_t driveDroopRefRpm = 380; // engine rpm for full track speed — lower = reaches full speed sooner
 int16_t driveIdleCreepPercent = 28; // min track-speed % at idle throttle so it still creeps (0 = stall at idle)
-int16_t hydIdleFlowPercent = 30;    // min implement speed % at idle rpm — hydraulics ride pump flow, so
-                                    //   blade/ripper are noticeably slow at idle and quicken as you rev
+int16_t hydIdleFlowPercent = 50;    // min BLADE/tilt/angle speed % at idle rpm (they ride pump flow too)
+int16_t ripperIdleFlowPercent = 25; // ripper (4th implement) gets its own LOWER idle floor, so it's the
+                                    //   one that's clearly slow at idle and speeds up with revs
 
 // --- Hydraulic mode: drive a real pump ESC from engine rpm (GPIO33 = the ESC header) ---
 // For real-hydraulics builds (e.g. a Burnie CAT 349): the board runs the pump + electric drive/swing,

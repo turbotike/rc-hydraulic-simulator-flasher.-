@@ -1610,12 +1610,13 @@ void mcpwmOutput() {
   // Hydraulics ride PUMP FLOW too — the same pump feeds the cylinders, so implement speed scales with
   // engine rpm (slow at idle, quick when revved), with a floor so they still creep at idle. Same idea
   // as the track droop. (Best for linear actuators; for a position servo this also trims its throw.)
-  int32_t hydFrac = constrain((int32_t)currentRpm * 100 / max((int16_t)1, driveDroopRefRpm), 0, 100);
-  if (hydFrac < hydIdleFlowPercent) hydFrac = hydIdleFlowPercent;
+  int32_t rpmScale = constrain((int32_t)currentRpm * 100 / max((int16_t)1, driveDroopRefRpm), 0, 100);
+  int32_t hydFrac = max(rpmScale, (int32_t)hydIdleFlowPercent);       // blade / tilt / angle idle floor
+  int32_t ripFrac = max(rpmScale, (int32_t)ripperIdleFlowPercent);   // ripper — lower floor, more rpm-linked
   im0 = constrain(1500 + (int)((int32_t)valveCmd[0] * hydFrac / 100), servoMin[2], servoMax[2]);
   im1 = constrain(1500 + (int)((int32_t)valveCmd[1] * hydFrac / 100), servoMin[2], servoMax[2]);
   im2 = constrain(1500 + (int)((int32_t)valveCmd[2] * hydFrac / 100), servoMin[2], servoMax[2]);
-  im3 = constrain(1500 + (int)((int32_t)valveCmd[3] * hydFrac / 100), servoMin[3], servoMax[3]);
+  im3 = constrain(1500 + (int)((int32_t)valveCmd[3] * ripFrac / 100), servoMin[3], servoMax[3]);
 
   mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, driveA); // GPIO13
   mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, driveB); // GPIO12
