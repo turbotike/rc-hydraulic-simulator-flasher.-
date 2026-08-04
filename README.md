@@ -23,6 +23,7 @@ Most RC sound kits just play a clip when you nudge a stick. This one **simulates
 - **The drive sings.** A real recorded **hydrostatic whine** rises and falls with track speed, and the **track rattle clatters faster** the quicker you go. The engine even **ducks back** a touch as the tracks get busy, so the drive sound cuts through instead of piling up.
 - **Proportional valves.** Blade, tilt and ripper move smoothly with a deadzone and ramp, and the pump whine rises with how much you're asking of it.
 - **You feel it, too.** On a game controller the rumble follows the machine — a diesel idle lope, a thump that pulses with track speed, a swell under load, and a hard jolt when it bogs. The **light bar** glows green → amber → red with the load.
+- **It has real consequences.** Flog it at full load for too long and the coolant climbs into the red (lightbar + rumble warning) and the engine **overheats and dies** — you wait for it to cool, then restart. Lug it too hard under load until the RPM collapses and it **stalls**. The turbo whistle **spools up with lag** instead of snapping on. And a built-in **hour meter** logs your run-time like a real service meter. *(All of it is tunable, and can be switched off, in the firmware.)*
 
 The result is a machine that feels like it has weight and power in reserve — and grunts when you put it to work. Fire it up, throttle on, drop the blade into a pile and *push* — and listen to it dig in.
 
@@ -36,10 +37,11 @@ The result is a machine that feels like it has weight and power in reserve — a
 4. [Wiring it up](#wiring-it-up)
 5. [Driving with a game controller](#driving-with-a-game-controller)
 6. [Work lights](#work-lights)
-7. [Sounds — use the Sound Technician](#sounds--use-the-sound-technician)
-8. [Reversing an output that runs backwards](#reversing-an-output-that-runs-backwards)
-9. [Troubleshooting](#troubleshooting)
-10. [FAQ](#faq)
+7. [Real hydraulics (Hydraulic mode)](#real-hydraulics-hydraulic-mode)
+8. [Sounds — use the Sound Technician](#sounds--use-the-sound-technician)
+9. [Reversing an output that runs backwards](#reversing-an-output-that-runs-backwards)
+10. [Troubleshooting](#troubleshooting)
+11. [FAQ](#faq)
 
 ---
 
@@ -88,7 +90,7 @@ Plug your ESCs/servos into the output headers (see [Wiring](#wiring-it-up)), pow
 
 | Tab | What it does |
 |-----|--------------|
-| **🚜 Machine** | Pick the machine type and drive mode, plus the feel tuning: auto idle-down (+ level), drive-stick expo, reversing beeper mode, controller light-bar colour, and rattle ducking. |
+| **🚜 Machine** | Pick the machine type and drive mode, the feel tuning (drive-stick expo, reversing beeper, light-bar colour, rattle ducking), and the **Hydraulic mode** toggle for real-pump builds (see [Real hydraulics](#real-hydraulics-hydraulic-mode)). |
 | **🎚️ Levels** | Volume mixer — master volume, engine, pump, drive whine, rattle, horn, etc. Nothing can clip: both audio channels have a built-in soft limiter, so crank away. |
 | **🔊 Sound Technician** | Choose the actual sound for each slot, preview it, or upload your own WAV. |
 | **🎮 Controls** | Pick RC transmitter (and bus: IBUS/SBUS/PWM) or game controller, map sticks/buttons to each function, and reverse any output. |
@@ -131,7 +133,9 @@ Pick **Game controller** on the **Controls** tab and Flash. Then pair your pad:
 
 Once paired, the board **remembers** your controller — on later power-ups it reconnects on its own the moment you tap **PS** (no re-pairing). Bluetooth comes up first thing at boot, so it's ready to grab the pad almost immediately after the battery goes in. To pair a *different* controller, hold the ESP32's **BOOT** button for ~3 s while it's running.
 
-**Handy in-game shortcuts** (gamepad): hold **both bumpers (L1 + R1)** and use the **right stick** — up/down = **master volume**, a left/right flick = **vibration on/off**. The controller **light bar** shows engine load (green idle → amber → red bog) or a fixed color you pick on the Machine tab.
+**Handy in-game shortcuts** (gamepad): hold **both bumpers (L1 + R1)** and use the **right stick** — up/down = **master volume**, a left/right flick = **vibration on/off**. Hold **both bumpers + tap D-pad ◂** to **blink the engine hours** out on the light bar (**long flash = tens, short = ones** — so `12 h` = 1 long + 2 short). The controller **light bar** shows engine load (green idle → amber → red bog) or a fixed color you pick on the Machine tab.
+
+**Range:** the board runs its Bluetooth at **full transmit power** for the best reach. If you need more, swap to an ESP32 with an **external antenna** (a WROOM-**32U** module + a 2.4 GHz whip) — same chip, same firmware, just drops into the header.
 
 > **Connect time:** a **genuine** DS4/DualSense/Xbox pad connects in a couple of seconds. **Generic / clone** controllers have their own Bluetooth quirks and can take a while (or need a couple of tries) to pair — that's the clone, not the firmware. If one won't cooperate, a real first-party pad is the fix.
 
@@ -170,6 +174,16 @@ Wire your LED light bar between the header's output and the board's **+** and **
 
 ---
 
+## Real hydraulics (Hydraulic mode)
+
+Building an **actual hydraulic machine** — a real pump and valves, like a Burnie 3D-printed excavator — rather than the servo-driven sim? Flip on **Hydraulic mode** on the Machine tab and the board drives your **hydraulic pump ESC from the engine RPM**: it idles low and revs up with the throttle, so you **rev up to dig**, just like the real thing (and it's held at minimum at boot so a brushless ESC arms cleanly). Your **hydraulic control valves stay on the receiver's PWM**; the board runs the pump plus your electric **drive and swing** motors, all RPM-linked so the whole machine "wakes up" as you throttle on.
+
+- **Pump signal** comes off the **ESC header (GPIO 33)** — wire your pump ESC there. Tracks stay on CH1/CH2, swing on the **32** header.
+- Set the **idle pump speed** (`pumpIdlePercent`, ~25% default) high enough that a brushless motor spins smooth without cogging and holds a little pressure.
+- Hydraulic mode is **RC only** — a Bluetooth pad can't run your valves — so turning it on automatically disables the gamepad option on the Controls tab.
+
+---
+
 ## Sounds — use the Sound Technician
 
 Each sound slot has a dropdown that shows **only the sounds that fit it** (the start slot lists start clips, idle lists idles, etc.). Hit **▶** to preview.
@@ -197,6 +211,9 @@ Motors and actuators get wired however they land, so any output might run the wr
 | **No sound** | Check the speaker/amp wiring and the **Master volume** on the Levels tab. Make sure it's a **classic ESP32** (S3/C3 have no sound hardware). |
 | **Engine won't start** | It doesn't auto-start — press **△** (controller) or your engine-toggle channel. |
 | **A track drives the wrong way** | Flip that output in **Controls → Reverse output direction**. |
+| **Reverse won't engage — it brakes until I let the stick back to neutral** | Your track **ESC is in Forward/Brake/Reverse mode** (the default on 1060-style ESCs — the first pull-back is a *brake*, and it needs to see neutral before it'll reverse). Best fix: set the ESC to **Forward/Reverse (no brake)** — usually a jumper (the **F/R** position, *not* "no jumper") or a throttle-stick program step. The firmware also holds a real neutral on each direction flip (`reverseArmMs`, 450 ms) to re-arm a brake-mode ESC for you; set it to `0` if your ESC is already no-brake. |
+| **Engine dies on its own under heavy load** | That's the sim — it **overheated** (watch for the red lightbar flash; let it cool, then restart) or you **lugged it to a stall**. Ease off, or turn the systems sim down/off in the firmware (`simSystemsEnabled`). |
+| **Controller drops out at range** | Bluetooth is already at full TX power. For more reach use an **external-antenna ESP32** (WROOM-32U + a 2.4 GHz whip). A genuine first-party pad also holds the link better than a clone at the fringe. |
 | **Controller won't pair / slow to connect** | Re-do **SHARE + PS** until the light bar double-flashes; make sure you flashed the **Game controller** build and the pad isn't connected to a phone/PS4. **Generic/clone controllers can be slow or need a few tries** — a genuine DS4/DualSense pairs fastest. Hold **BOOT** ~3 s to wipe bonds and pair fresh. |
 | **Faint hiss/Bluetooth noise from the speaker with the engine off** | This is the ESP32's Bluetooth radio coupling into the audio hardware — it's a board-layout trait, not a bug, and it's masked once the engine's running. If it bugs you, it's a hardware fix: a decoupling cap on the amp input, a ferrite on the speaker leads, or wire the amp's **mute/shutdown pin** so the firmware can cut it when idle (ask if your amp has one). |
 | **Page stuck / looks wrong after an update** | Hard-refresh the browser: **Ctrl + Shift + R**. Only run **one** copy of the app at a time. |
@@ -217,6 +234,10 @@ Motors and actuators get wired however they land, so any output might run the wr
 **Do I need the internet?** Only the very first Flash (to download the build tools once) and to grab your own sounds. After that it runs offline.
 
 **Where do my settings live?** In the machine's config — saved when you press **Save**, and baked into the firmware when you **Flash**.
+
+**How do I read the engine hours?** Two ways. Plugged in: on the **Flash** tab there's an **Engine hours** card — pick your port and hit **Read hours** (or **Reset to 0** for a fresh build). Trackside: **hold both bumpers + tap D-pad ◂** on a gamepad (or, on RC, engine off + hold the horn ~2 s) and it **blinks the hours out on the light** — long flash = tens, short = ones.
+
+**Can I keep configs for several machines?** Yes — the **Machine tab → Vehicle Profiles** lets you save, export, and re-import a full config per machine. You still flash one at a time, but you don't have to re-enter everything.
 
 ---
 
