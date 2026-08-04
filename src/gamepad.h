@@ -17,6 +17,7 @@
 
 #include <Bluepad32.h>
 #include <Preferences.h>
+#include <esp_bt.h> // esp_bredr_tx_power_set — crank BT range up
 
 // The Controls tab writes these; included first so its #defines win over the defaults below.
 #if defined __has_include
@@ -175,6 +176,9 @@ void setupGamepad()
   BP32.setup(&gpOnConnect, &gpOnDisconnect);
   BP32.enableVirtualDevice(false);
   BP32.enableNewBluetoothConnections(true);   // accept a controller that's in pairing mode
+  // Max Bluetooth classic (BR/EDR) TX power (+9 dBm) for the best range — the stock default is lower.
+  // Helps the board→controller reach; an external-antenna ESP32-WROOM-32U extends both directions more.
+  esp_bredr_tx_power_set(ESP_PWR_LVL_P9, ESP_PWR_LVL_P9);
   pinMode(GP_REPAIR_PIN, INPUT_PULLUP);        // BOOT button = hold to re-pair a new controller
 
   // Bonds are KEPT across power cycles, so a controller you've paired once auto-reconnects the moment
