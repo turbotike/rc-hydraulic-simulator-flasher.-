@@ -1275,7 +1275,10 @@ static int16_t rampToward(int16_t cur, int16_t target, int16_t accel, int16_t de
   // zero AND bigger — so a forward↔reverse change destrokes to 0 fast (decel) before stroking out the
   // other way, instead of crawling the whole reversal at the slow accel rate. (The old test was just
   // |target|>|cur|, which picked slow accel for the entire reversal → laggy "won't go into reverse".)
-  bool stroking = ((cur >= 0) == (target >= 0)) && (abs(target) > abs(cur));
+  bool stroking;
+  if (cur == 0)                        stroking = (target != 0);          // leaving neutral = stroke
+  else if ((cur > 0) == (target > 0))  stroking = (abs(target) > abs(cur)); // same side: growing = stroke
+  else                                 stroking = false;                   // crossing zero = destroke first
   int16_t rate = stroking ? accel : decel;
   if (cur < target) { cur += rate; if (cur > target) cur = target; }
   else if (cur > target) { cur -= rate; if (cur < target) cur = target; }
@@ -1332,9 +1335,26 @@ void hydrostaticModel() {
   if (millis() - last < 20) return;
   last = millis();
 #if MACHINE_TRACKED
-  // Swashplate ramps straight from forward through neutral to reverse — no dwell. (The old ESC
-  // re-arm neutral-hold only helps brake/reverse ESCs; with no-brake ESCs it just stalled reverse
-  // until you re-centered. No-brake ESCs reverse instantly, so let the ramp flow through.)
+  // ESC re-arm hold. A real radio gives the ESC an instant, SUSTAINED neutral the moment you center
+  // the stick — that held neutral is what lets a Forward/Brake/Reverse ESC accept reverse. Our swash
+  // RAMPS smoothly through neutral, so on a fwd<->rev flip the ESC never sees a held neutral and reads
+  // the reverse as a brake ("won't reverse until you let off"). So on a direction flip while moving,
+  // HOLD a true neutral for reverseArmMs, then release into the new direction — reproducing what a
+  // stick does. Set reverseArmMs = 0 for a no-brake / F-R ESC that reverses instantly (no pause wanted).
+  static uint32_t reverseHoldUntil = 0;
+  static int8_t lastDir = 0;
+  int32_t cmdSum = (int32_t)cmdTrackL + cmdTrackR;
+  int8_t cmdDir = (cmdSum > 140) ? 1 : (cmdSum < -140) ? -1 : 0;
+  bool moving = (abs((int)swashL) + abs((int)swashR)) > 60;
+  if (reverseArmMs > 0 && cmdDir != 0 && lastDir != 0 && cmdDir != lastDir && moving)
+    reverseHoldUntil = millis() + reverseArmMs;
+  if (cmdDir != 0) lastDir = cmdDir;
+  if (millis() < reverseHoldUntil) {           // hold a true, SUSTAINED neutral so the ESC re-arms
+    swashL = 0; swashR = 0;
+    actualTrackL = 0; actualTrackR = 0;
+    driveFlowDemand = 0;
+    return;
+  }
   swashL = rampToward(swashL, cmdTrackL, swashAccelRate, swashDecelRate);
   swashR = rampToward(swashR, cmdTrackR, swashAccelRate, swashDecelRate);
   // Full hydrostat: track speed = pump flow = swashplate displacement (swash) × engine-rpm fraction.

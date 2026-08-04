@@ -63,6 +63,9 @@ uint8_t CH_DZ_STEER    = 1;   // (mix mode) left / right axis
 // --- Hydrostatic drive tuning (dual-path pump→motor feel) ---
 int16_t swashAccelRate  = 15;   // swashplate stroke toward command, per 20ms tick (±500 span). Lower = smoother/lazier pull-away.
 int16_t swashDecelRate  = 40;   // destroke back toward neutral (higher = snappier stops AND quicker into reverse)
+uint16_t reverseArmMs   = 450;  // hold a true neutral this long on a forward<->reverse flip so a brake/
+                                //   reverse (F/B/R) ESC re-arms — what a real radio does when you center
+                                //   the stick. 0 = off, for a no-brake / F-R ESC that reverses instantly.
 int16_t trackThrowScale = 100;  // % of servo throw the tracks use
 int16_t counterRotScale = 80;   // % throw allowed while counter-rotating (spin on the spot)
 int16_t pivotThreshold  = 80;   // drive effort (of 500) above which turns ARC instead of spinning —
