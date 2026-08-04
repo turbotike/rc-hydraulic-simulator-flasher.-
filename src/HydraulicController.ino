@@ -1342,14 +1342,25 @@ void hydrostaticModel() {
   // HOLD a true neutral for reverseArmMs, then release into the new direction — reproducing what a
   // stick does. Set reverseArmMs = 0 for a no-brake / F-R ESC that reverses instantly (no pause wanted).
   static uint32_t reverseHoldUntil = 0;
+  static uint32_t outNeutralSince = 0; // when the tracks last settled at neutral (ESC re-arm timing)
   static int8_t lastDir = 0;
+  uint32_t nowMs = millis();
   int32_t cmdSum = (int32_t)cmdTrackL + cmdTrackR;
   int8_t cmdDir = (cmdSum > 140) ? 1 : (cmdSum < -140) ? -1 : 0;
-  bool moving = (abs((int)swashL) + abs((int)swashR)) > 60;
-  if (reverseArmMs > 0 && cmdDir != 0 && lastDir != 0 && cmdDir != lastDir && moving)
-    reverseHoldUntil = millis() + reverseArmMs;
+  // How long the OUTPUT has continuously sat at neutral — this is the "held neutral" a real radio gives
+  // the ESC, which is what re-arms a Forward/Brake/Reverse ESC for reverse.
+  if ((abs((int)swashL) + abs((int)swashR)) < 40) { if (!outNeutralSince) outNeutralSince = nowMs; }
+  else outNeutralSince = 0;
+  // On a direction reversal, hold neutral ONLY IF the ESC hasn't already had a full neutral gap. So a
+  // quick fwd<->rev flip (or a slow ease that never dwelt at neutral) gets its pause, but reversing
+  // from a genuine stop — where it's already been at neutral a while — stays instant. (The old test
+  // was "still moving", which missed slow reversals and stop-then-reverse — the intermittent failures.)
+  if (reverseArmMs > 0 && cmdDir != 0 && lastDir != 0 && cmdDir != lastDir) {
+    bool armed = outNeutralSince && (nowMs - outNeutralSince >= reverseArmMs);
+    if (!armed) reverseHoldUntil = nowMs + reverseArmMs;
+  }
   if (cmdDir != 0) lastDir = cmdDir;
-  if (millis() < reverseHoldUntil) {           // hold a true, SUSTAINED neutral so the ESC re-arms
+  if (nowMs < reverseHoldUntil) {              // hold a true, SUSTAINED neutral so the ESC re-arms
     swashL = 0; swashR = 0;
     actualTrackL = 0; actualTrackR = 0;
     driveFlowDemand = 0;
