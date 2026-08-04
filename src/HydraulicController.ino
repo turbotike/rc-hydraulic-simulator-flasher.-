@@ -265,6 +265,13 @@ bool batteryProtection = false;
 volatile bool lowBatteryTrigger = false; // fires the spoken "low battery" voice once
 volatile bool lowBatteryLatch   = false; // set while that voice is playing out
 
+// Machine systems sim state (declared early so the LED/rumble warnings can see them)
+int16_t  engineTemp    = 0;      // 0 (cold) .. 1000 (overheat kill), internal units
+int32_t  fuelLevel     = 10000;  // 100.00% .. 0 (empty); refills full on each engine start
+uint32_t engineSeconds = 0;      // total engine run-time (hour meter), persisted to NVS
+volatile bool overTempWarn = false, lowFuelWarn = false; // for the lightbar / rumble warnings
+bool overheatLockout = false;    // engine held OFF until it cools back down
+
 // FreeRTOS
 TaskHandle_t Task1;
 
@@ -1049,7 +1056,17 @@ void mapThrottle() {
   throttleDependentVolume = map(currentThrottleFaded, 0, 500, engineIdleVolumePercentage, fullThrottleVolumePercentage);
   throttleDependentRevVolume = map(currentThrottleFaded, 0, 500, engineRevVolumePercentage, 100);
   throttleDependentKnockVolume = map(currentThrottleFaded, 0, 500, dieselKnockIdleVolumePercentage, 100);
-  throttleDependentTurboVolume = map(currentThrottleFaded, 0, 500, turboIdleVolumePercentage, 100);
+  // Turbo LAG: the whistle spools UP over ~1s when you get on it and winds back down after — not instant.
+  {
+    static int16_t turboSpool = 0; static unsigned long turboMs = 0;
+    int16_t turboTarget = map(currentThrottleFaded, 0, 500, turboIdleVolumePercentage, 100);
+    if (millis() - turboMs >= 40) {
+      turboMs = millis();
+      if (turboSpool < turboTarget) turboSpool = min((int16_t)(turboSpool + turboSpoolRate), turboTarget);
+      else                          turboSpool = max((int16_t)(turboSpool - turboSpoolRate), turboTarget);
+    }
+    throttleDependentTurboVolume = turboSpool;
+  }
   throttleDependentFanVolume = map(currentThrottleFaded, 0, 500, fanIdleVolumePercentage, 100);
   throttleDependentChargerVolume = map(currentThrottleFaded, 0, 500, chargerIdleVolumePercentage, 100);
   rpmDependentWastegateVolume = map(currentRpm, 0, 500, wastegateIdleVolumePercentage, 100);
@@ -1467,8 +1484,9 @@ void updateGamepadRumble() {
   if (millis() - lastMs < 60) return; // ~16 Hz refresh — smooth enough to PULSE the tracks
   lastMs = millis();
 
-  if (batteryProtection) {                          // LOW BATTERY: short warning buzz every second
-    bool buzz = (millis() % 1000) < 200;
+  if (overTempWarn || batteryProtection || lowFuelWarn) { // OVERHEAT / LOW BATT / LOW FUEL: warning buzz
+    uint32_t period = overTempWarn ? 500 : 1000;    // overheat buzzes faster/more urgent
+    bool buzz = (millis() % period) < 200;
     gpController->playDualRumble(0, 90, buzz ? 200 : 0, buzz ? 255 : 0);
     return;
   }
@@ -1512,9 +1530,19 @@ void updateGamepadLED() {
   if (millis() - lastMs < 200) return; // 5 Hz — don't flood Bluetooth
   lastMs = millis();
 
+  if (overTempWarn) {                              // OVERHEAT: fast red flash — back off before it dies
+    bool on = (millis() % 300) < 150;
+    gpController->setColorLED(on ? 255 : 0, 0, 0);
+    return;
+  }
   if (batteryProtection) {                         // LOW BATTERY: hard red flash, overrides every mode
     bool on = (millis() % 600) < 300;
     gpController->setColorLED(on ? 255 : 0, 0, 0);
+    return;
+  }
+  if (lowFuelWarn) {                               // LOW FUEL: amber flash
+    bool on = (millis() % 700) < 350;
+    gpController->setColorLED(on ? 255 : 0, on ? 90 : 0, 0);
     return;
   }
 
@@ -2259,6 +2287,62 @@ void handleSerialCommands() {
 }
 
 // ════════════════════════════════════════════════════════════════
+// MACHINE SYSTEMS SIM — coolant temp / overheat-kill, fuel / run-dry-kill, lug-stall, hour meter
+// ════════════════════════════════════════════════════════════════
+void saveEngineHours() {
+  nvsPrefs.begin("settings", false);
+  nvsPrefs.putUInt("ehours", engineSeconds);
+  nvsPrefs.end();
+}
+
+void machineSystemsSim() {
+  if (!simSystemsEnabled) return;
+  static unsigned long last = 0;
+  static bool wasRunning = false;
+  static uint16_t qsec = 0;         // quarter-seconds accumulator for the hour meter
+  static uint32_t lastSaveSec = 0;
+  static uint8_t stallTicks = 0;
+  if (millis() - last < 250) return; // 4 Hz tick
+  last = millis();
+
+  if (engineRunning && !wasRunning) fuelLevel = 10000;   // fresh tank on each start
+  if (!engineRunning && wasRunning) saveEngineHours();     // persist hours when it stops
+  wasRunning = engineRunning;
+
+  int16_t cap  = max((int16_t)1, pumpFlowCapacity);
+  int32_t load = constrain((int32_t)totalFlowDemand, (int32_t)0, (int32_t)cap);
+  int32_t rpmF = constrain((int32_t)currentRpm, (int32_t)0, (int32_t)maxRpm);
+
+  // Coolant temp: eases toward a load/rpm target; sustained heavy flogging climbs to the overheat kill.
+  int32_t tgt = engineRunning ? (250 + rpmF * 250 / maxRpm + load * 650 / cap) : 0; // idle~250, hard~1150
+  if (engineTemp < tgt) engineTemp = min((int32_t)engineTemp + tempRiseRate, tgt);
+  else                  engineTemp = max((int32_t)engineTemp - tempFallRate, (int32_t)0);
+  overTempWarn = engineRunning && engineTemp >= 850;   // in the red before it kills at 1000
+
+  // Fuel: burns with rpm + load; runs dry -> dies (refuels on next start).
+  if (engineRunning) {
+    int32_t burn = rpmF * (100 + load * 100 / cap) / 100;   // 0 .. ~1000
+    fuelLevel -= (int32_t)burn * fuelBurnRate / 100000;
+    if (fuelLevel < 0) fuelLevel = 0;
+  }
+  lowFuelWarn = engineRunning && fuelLevel <= (int32_t)lowFuelPercent * 100;
+
+  // Kills — engine dies, you restart it.
+  if (engineRunning) {
+    bool lugged = (rpmF < stallRpm && load > cap * 3 / 4);
+    stallTicks = lugged ? (uint8_t)(stallTicks + 1) : 0;
+    if (engineTemp >= 1000)   { engineOn = false; overheatLockout = true; } // overheat: cool before restart
+    else if (fuelLevel <= 0)  { engineOn = false; }                         // out of fuel
+    else if (stallTicks >= 2) { engineOn = false; }                         // lugged it dead (~0.5s)
+  }
+  if (overheatLockout) { engineOn = false; if (engineTemp < 700) overheatLockout = false; } // cooled -> can restart
+
+  // Hour meter: +1s of run-time per 4 ticks; save every 5 min of running.
+  if (engineRunning && ++qsec >= 4) { qsec = 0; engineSeconds++; }
+  if (engineSeconds - lastSaveSec >= 300) { lastSaveSec = engineSeconds; saveEngineHours(); }
+}
+
+// ════════════════════════════════════════════════════════════════
 // BATTERY MONITOR — voltage divider on VN, spoken low-battery warning
 // ════════════════════════════════════════════════════════════════
 
@@ -2352,6 +2436,8 @@ void setup() {
   // Load channel mapping from NVS (overrides defaults in config.h)
   loadChannelsFromNVS();
   loadSettingsFromNVS();
+  { nvsPrefs.begin("settings", true); engineSeconds = nvsPrefs.getUInt("ehours", 0); nvsPrefs.end();
+    Serial.printf("Engine hours: %.1f\n", engineSeconds / 3600.0); }
   Serial.println("Channel mapping + settings loaded from NVS");
 
   // Try to load sound pack from flash partition (overrides compiled-in sounds)
@@ -2524,6 +2610,7 @@ void loop() {
 
   loadModel();         // total pump demand → governor bog (must run after the sound set above)
 
+  machineSystemsSim(); // coolant temp/overheat, fuel, lug-stall, hour meter (reads totalFlowDemand)
   updateBattery();     // poll pack voltage → low-battery warning (voice + controller)
 
   // Servo output

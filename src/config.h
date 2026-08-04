@@ -83,6 +83,18 @@ boolean  pumpFromRpm     = false; // true = "Hydraulic mode" — GPIO33 outputs 
 int16_t  pumpIdlePercent = 25;    // pump throttle % at engine idle (keep above the brushless cogging point)
 uint16_t pumpArmMs       = 3000;  // hold pump at minimum this long at boot so a brushless ESC arms
 
+// --- Machine systems sim: coolant temp/overheat, fuel burn, lug stall, engine hours ---
+// Real consequences: flog it and it overheats & dies; run the tank dry and it sputters out; lug it
+// too hard under load and it stalls. All shut the engine OFF — you restart it (overheat makes you
+// wait for it to cool first). Fuel refills full on each start. Set simSystemsEnabled=false to disable.
+boolean  simSystemsEnabled = true;
+int16_t  tempRiseRate   = 2;   // coolant heat-up per 250ms (higher = overheats sooner under heavy load)
+int16_t  tempFallRate   = 3;   // cool-down per 250ms when eased off / idling
+int16_t  turboSpoolRate = 3;   // turbo lag: whistle spool per 40ms (lower = laggier)
+uint16_t fuelBurnRate   = 14;  // fuel burn (higher = shorter tank; ~14 ≈ 25 min of hard running)
+int16_t  lowFuelPercent = 15;  // low-fuel warning below this %
+int16_t  stallRpm       = 45;  // under heavy load, if rpm lugs below this the engine STALLS (dies)
+
 // --- Implement (proportional valve) model: [lift, tilt, angle, ripper] ---
 uint8_t implFlowWeight[4] = {40, 25, 25, 35};      // % pump load each function draws at full flow
 
@@ -107,7 +119,7 @@ int16_t driveExpo = 55;
 
 // --- Rattle ducking: as the tracks get busy, pull the engine back this % so the rattle/whine cut
 //     through instead of everything piling up. 0 = off, e.g. 30 = engine drops to 70% at full pace ---
-int16_t rattleDuckPercent = 45;
+int16_t rattleDuckPercent = 50;
 
 // --- Controller lightbar colour (gamepad): 0 = reactive (green idle → amber load → red bog),
 //     1=blue 2=green 3=red 4=amber 5=white 6=cyan 7=purple 8=off ---
@@ -440,8 +452,12 @@ const unsigned int hydraulicFlowSampleRate = reliefSquealSampleRate;
 #include "sounds/reliefSqueal.h"
 
 // --- Track rattle ---
-volatile int trackRattleVolumePercentage = 155;  // sane loud level; the soft limiter has room now
-#include "sounds/Caterpillar323TrackRattle.h"
+volatile int trackRattleVolumePercentage = 150;  // sane loud level; the soft limiter has room now
+#include "sounds/D6TrackRattle.h"
+// Alias: auto-generated variable mapping
+const signed char* trackRattleSamples = trackRattle2Samples;
+const unsigned int trackRattleSampleCount = trackRattle2SampleCount;
+const unsigned int trackRattleSampleRate = trackRattle2SampleRate;
 
 // --- Track rattle 2 (periodic clank, for tracked machines) ---
 #define TRACK_RATTLE_2
@@ -470,11 +486,6 @@ const unsigned int lowBatterySampleRate = shakehandsSampleRate;
 const signed char* parkingBrakeSamples = samples;
 const unsigned int parkingBrakeSampleCount = sampleCount;
 const unsigned int parkingBrakeSampleRate = sampleRate;
-
-// Auto-injected for trackRattle2Sound (was missing) — using idle sound
-const signed char* trackRattle2Samples = samples;
-const unsigned int trackRattle2SampleCount = sampleCount;
-const unsigned int trackRattle2SampleRate = sampleRate;
 
 // ============================================================================
 // RC SIGNAL TUNING
