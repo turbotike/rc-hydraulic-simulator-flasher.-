@@ -2323,10 +2323,12 @@ void machineSystemsSim() {
   static uint16_t qsec = 0;         // quarter-seconds accumulator for the hour meter
   static uint32_t lastSaveSec = 0;
   static uint8_t stallTicks = 0;
+  static uint32_t runningSince = 0;
   if (millis() - last < 250) return; // 4 Hz tick
   last = millis();
 
-  if (!engineRunning && wasRunning) saveEngineHours();     // persist hours when it stops
+  if (engineRunning && !wasRunning) runningSince = millis(); // fresh start → grace before stall can fire
+  if (!engineRunning && wasRunning) saveEngineHours();       // persist hours when it stops
   wasRunning = engineRunning;
 
   int16_t cap  = max((int16_t)1, pumpFlowCapacity);
@@ -2341,10 +2343,12 @@ void machineSystemsSim() {
 
   // Kills — engine dies, you restart it.
   if (engineRunning) {
-    bool lugged = (rpmF < stallRpm && load > cap * 3 / 4);
-    stallTicks = lugged ? (uint8_t)(stallTicks + 1) : 0;
-    if (engineTemp >= 1000)   { engineOn = false; overheatLockout = true; } // overheat: cool before restart
-    else if (stallTicks >= 2) { engineOn = false; }                         // lugged it dead (~0.5s)
+    if (engineTemp >= 1000) { engineOn = false; overheatLockout = true; }   // overheat: cool before restart
+    else if (millis() - runningSince > 2500) {                              // spin-up grace: don't re-stall a
+      bool lugged = (rpmF < stallRpm && load > cap * 3 / 4);                //   just-restarted engine (that was
+      stallTicks = lugged ? (uint8_t)(stallTicks + 1) : 0;                  //   the crackly/near-mute restart)
+      if (stallTicks >= 2) engineOn = false;                                // lugged it dead (~0.5s)
+    } else stallTicks = 0;
   }
   if (overheatLockout) { engineOn = false; if (engineTemp < 700) overheatLockout = false; } // cooled -> can restart
 
