@@ -19,6 +19,9 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include "config.h"
+// Hour-meter readout flags — declared before gamepad.h so its gesture handler can set them.
+volatile bool showHoursTrigger = false; // gesture / serial → blink the hour meter out on the light
+bool hourBlinkActive = false;            // true while the blink readout is playing (mutes normal lights/LED)
 #include "soundpack.h"
 #include "gamepad.h"
 
@@ -994,6 +997,18 @@ void mapThrottle() {
     if (CH_ENGINE_TOGGLE == 0 || pulseWidth[CH_ENGINE_TOGGLE] < 1600) engineToggle = false;
   }
 
+#if !defined GAMEPAD_MODE
+  // ── Hour-meter readout (RC): with the engine OFF, hold the HORN ~2s → blink the hours on the work light.
+  {
+    static uint32_t hornHeldSince = 0; static bool hrLatch = false;
+    bool hornHigh = (CH_HORN > 0 && pulseWidth[CH_HORN] > 1700);
+    if (!engineOn && hornHigh) {
+      if (!hornHeldSince) hornHeldSince = millis();
+      else if (millis() - hornHeldSince > 2000 && !hrLatch) { showHoursTrigger = true; hrLatch = true; }
+    } else { hornHeldSince = 0; hrLatch = false; }
+  }
+#endif
+
   // ── Throttle mapping (mode-specific) ──
 #if defined EXCAVATOR_MODE || defined DOZER_MODE || defined CRANE_MODE
   // Forward-only throttle (hand throttle sets RPM)
@@ -1093,9 +1108,11 @@ void mapThrottle() {
 
   // ── Work-light GPIO output ── each press adds the next set; they all stay on until "off".
   // lightsMode: 0=off, 1=front, 2=front+rear, 3=front+rear+side
-  digitalWrite(FRONT_WORKLIGHT_PIN, (lightsMode >= 1) ? HIGH : LOW);
-  digitalWrite(REAR_WORKLIGHT_PIN,  (lightsMode >= 2) ? HIGH : LOW);
-  digitalWrite(SIDE_LIGHT_PIN,      (lightsMode >= 3) ? HIGH : LOW);
+  if (!hourBlinkActive) { // the hour-meter readout borrows the front work light while it blinks
+    digitalWrite(FRONT_WORKLIGHT_PIN, (lightsMode >= 1) ? HIGH : LOW);
+    digitalWrite(REAR_WORKLIGHT_PIN,  (lightsMode >= 2) ? HIGH : LOW);
+    digitalWrite(SIDE_LIGHT_PIN,      (lightsMode >= 3) ? HIGH : LOW);
+  }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1529,6 +1546,7 @@ void updateGamepadLED() {
   if (millis() - lastMs < 200) return; // 5 Hz — don't flood Bluetooth
   lastMs = millis();
 
+  if (hourBlinkActive) return;                     // hour-meter readout owns the lightbar right now
   if (overTempWarn) {                              // OVERHEAT: fast red flash — back off before it dies
     bool on = (millis() % 300) < 150;
     gpController->setColorLED(on ? 255 : 0, 0, 0);
@@ -2260,6 +2278,15 @@ void processSerialCommand(const char* cmd) {
   else if (strcmp(cmd, "PING") == 0) {
     Serial.println("OK:PONG");
   }
+  // HOURS — report the engine hour meter (the flasher reads this)
+  else if (strcmp(cmd, "HOURS") == 0) {
+    Serial.printf("HOURS:%u\n", engineSeconds);   // seconds — flasher shows seconds/3600
+  }
+  // HOURSRESET — zero the hour meter (fresh-build service reset)
+  else if (strcmp(cmd, "HOURSRESET") == 0) {
+    engineSeconds = 0; saveEngineHours();
+    Serial.println("OK:HOURSRESET");
+  }
   else {
     Serial.printf("ERR:unknown cmd '%s'\n", cmd);
   }
@@ -2324,6 +2351,44 @@ void machineSystemsSim() {
   // Hour meter: +1s of run-time per 4 ticks; save every 5 min of running.
   if (engineRunning && ++qsec >= 4) { qsec = 0; engineSeconds++; }
   if (engineSeconds - lastSaveSec >= 300) { lastSaveSec = engineSeconds; saveEngineHours(); }
+}
+
+// Drive the readout light: the controller lightbar (gamepad) or the front work light (RC).
+void setHourLight(bool on) {
+#if defined GAMEPAD_MODE
+  if (gpController && gpController->isConnected() && gpController->isGamepad())
+    gpController->setColorLED(on ? 255 : 0, on ? 255 : 0, on ? 255 : 0); // white blink
+#else
+  digitalWrite(FRONT_WORKLIGHT_PIN, on ? HIGH : LOW);
+#endif
+}
+
+// Non-blocking hour-meter readout: LONG blinks = tens, SHORT blinks = ones (e.g. 12 h = 1 long, 2 short).
+void updateHourBlink() {
+  static uint8_t st = 0, n = 0, i = 0;
+  static uint32_t t = 0;
+  static bool on = false, lng[24];
+  if (showHoursTrigger) {
+    showHoursTrigger = false;
+    uint32_t hrs = engineSeconds / 3600;
+    n = 0;
+    for (uint8_t k = 0; k < hrs / 10 && n < 24; k++) lng[n++] = true;   // tens → long blinks
+    for (uint8_t k = 0; k < hrs % 10 && n < 24; k++) lng[n++] = false;  // ones → short blinks
+    if (n == 0) lng[n++] = false;                                       // under 1 h → one short blink
+    i = 0; st = 1; t = millis(); on = false; hourBlinkActive = true; setHourLight(false);
+  }
+  if (st == 0) return;
+  uint32_t now = millis();
+  if (st == 1) {                                   // intro pause (light off) before the count
+    if (now - t > 800) { st = 2; on = true; setHourLight(true); t = now; }
+    return;
+  }
+  uint32_t onMs = lng[i] ? 550 : 170;              // long vs short pulse
+  if (on && now - t > onMs)       { on = false; setHourLight(false); t = now; }
+  else if (!on && now - t > 330)  {                // gap between blinks
+    if (++i >= n) { st = 0; hourBlinkActive = false; setHourLight(false); } // done — normal light resumes
+    else          { on = true; setHourLight(true); t = now; }
+  }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -2594,7 +2659,8 @@ void loop() {
 
   loadModel();         // total pump demand → governor bog (must run after the sound set above)
 
-  machineSystemsSim(); // coolant temp/overheat, fuel, lug-stall, hour meter (reads totalFlowDemand)
+  machineSystemsSim(); // coolant temp/overheat, lug-stall, hour meter (reads totalFlowDemand)
+  updateHourBlink();   // blink the hour meter out on the light when the gesture/serial asks
   updateBattery();     // poll pack voltage → low-battery warning (voice + controller)
 
   // Servo output

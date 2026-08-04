@@ -778,6 +778,17 @@ function renderFlashPane() {
       </div>
     </div>
 
+    <div class="card" style="margin-top:10px;">
+      <div class="row">
+        <strong>🕐 Engine hours</strong>
+        <span id="hoursVal" style="font-variant-numeric:tabular-nums;font-size:16px;">—</span>
+        <div class="spacer"></div>
+        <button id="readHours">Read hours</button>
+        <button id="resetHours" title="Zero the service meter (fresh build)">Reset to 0</button>
+      </div>
+      <div style="font-size:12px;color:var(--dim);margin-top:4px;">Service meter (persisted on the board). Uses the port above — reading briefly resets the board, so do it while parked.</div>
+    </div>
+
     <div id="status" class="status">Ready. Disconnect the battery, plug in USB, then Detect board.</div>
     <div class="progress"><div id="bar"></div></div>
     <details class="logwrap"><summary>Show details (for troubleshooting)</summary>
@@ -1071,6 +1082,30 @@ async function importVehicle(file) {
 
 // ---------- flash pane wiring ----------
 function wireFlashPane() {
+  // ── Engine hour meter (service meter): read / reset over the selected serial port ──
+  {
+    const hv = $("hoursVal");
+    const portOf = () => ($("nativePort") ? $("nativePort").value : "");
+    $("readHours").onclick = async () => {
+      const port = portOf();
+      if (!port) { hv.textContent = "pick a port ↑"; return; }
+      hv.textContent = "reading…";
+      try {
+        const r = await (await fetch("/api/hours?port=" + encodeURIComponent(port))).json();
+        hv.textContent = r.ok ? (r.seconds / 3600).toFixed(1) + " h" : "⚠ " + (r.error || "no reply");
+      } catch (e) { hv.textContent = "⚠ " + e.message; }
+    };
+    $("resetHours").onclick = async () => {
+      const port = portOf();
+      if (!port) { hv.textContent = "pick a port ↑"; return; }
+      if (!confirm("Zero the engine hour meter on the board?")) return;
+      try {
+        const r = await (await fetch("/api/hours_reset", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ port }) })).json();
+        hv.textContent = r.ok ? "0.0 h" : "⚠ " + (r.error || "");
+      } catch (e) { hv.textContent = "⚠ " + e.message; }
+    };
+  }
+
   const logEl = $("log"), statusEl = $("status"), barEl = $("bar");
   const log = (t) => { logEl.textContent += t; logEl.scrollTop = logEl.scrollHeight; };
   const setStatus = (t, k = "") => { statusEl.textContent = t; statusEl.className = "status " + k; };

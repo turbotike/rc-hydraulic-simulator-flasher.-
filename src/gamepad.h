@@ -289,6 +289,14 @@ void readGamepadCommands()
   int ry = c->axisRY();  // right stick Y
   uint16_t btn = c->buttons();
 
+  // ── Hour-meter readout: hold BOTH bumpers + tap the D-pad LEFT → blink the hours on the lightbar. ──
+  {
+    static bool hrLatch = false;
+    bool hrGest = (btn & 0x0010) && (btn & 0x0020) && (c->dpad() & 0x08); // L1+R1 + D-pad left
+    if (hrGest && !hrLatch) showHoursTrigger = true;
+    hrLatch = hrGest;
+  }
+
   // ── Settings combo: hold BOTH bumpers (L1 0x10 + R1 0x20), then the RIGHT STICK adjusts settings
   //    instead of driving an implement: up/down = master VOLUME, left/right flick = VIBRATION on/off. ──
   gpVolMode = ((btn & 0x0010) && (btn & 0x0020));

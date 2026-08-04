@@ -1137,6 +1137,48 @@ def list_serial_ports():
     return ports
 
 
+def read_engine_hours(port):
+    """Query the board's engine hour meter over serial. Returns {ok, seconds}."""
+    try:
+        import serial
+    except ImportError:
+        return {"ok": False, "error": "pyserial not installed. Run: pip install pyserial"}
+    try:
+        ser = serial.Serial(port, 115200, timeout=2)
+        time.sleep(0.2)
+        ser.reset_input_buffer()
+        ser.write(b"HOURS\n")
+        deadline = time.time() + 2.5
+        secs = None
+        while time.time() < deadline:
+            line = ser.readline().decode(errors="replace").strip()
+            if line.startswith("HOURS:"):
+                secs = int(line.split(":", 1)[1]); break
+        ser.close()
+        if secs is None:
+            return {"ok": False, "error": "No response — is the board plugged in and powered?"}
+        return {"ok": True, "seconds": secs}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def reset_engine_hours(port):
+    """Zero the board's engine hour meter over serial."""
+    try:
+        import serial
+    except ImportError:
+        return {"ok": False, "error": "pyserial not installed."}
+    try:
+        ser = serial.Serial(port, 115200, timeout=2)
+        time.sleep(0.2); ser.reset_input_buffer()
+        ser.write(b"HOURSRESET\n")
+        time.sleep(0.2); ser.readline()
+        ser.close()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def push_channels_serial(port, channels, settings=None, reversed_chs=None, enabled_chs=None):
     """Send channel mappings, settings, reverse flags, and enable flags to ESP32 over serial, then SAVE to NVS."""
     try:
@@ -1679,6 +1721,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._json(scan_all_sounds())
         elif path == "/api/serial_ports":
             self._json(list_serial_ports())
+        elif path == "/api/hours":
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            port = (q.get("port") or [""])[0]
+            self._json(read_engine_hours(port) if port else {"ok": False, "error": "Pick a serial port first."})
         elif path == "/api/vehicles":
             self._json({"ok": True, "vehicles": list_vehicles(), "current": _current_vehicle_file})
         elif path == "/logo.png":
@@ -1894,6 +1940,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     return
                 result = push_channels_serial(port, channels, settings, reversed_chs, enabled_chs)
                 self._json(result)
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+
+        elif path == "/api/hours_reset":
+            try:
+                port = json.loads(body).get("port", "")
+                self._json(reset_engine_hours(port) if port else {"ok": False, "error": "no port"})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
 
