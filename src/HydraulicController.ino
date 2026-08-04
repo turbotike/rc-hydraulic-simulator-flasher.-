@@ -267,9 +267,8 @@ volatile bool lowBatteryLatch   = false; // set while that voice is playing out
 
 // Machine systems sim state (declared early so the LED/rumble warnings can see them)
 int16_t  engineTemp    = 0;      // 0 (cold) .. 1000 (overheat kill), internal units
-int32_t  fuelLevel     = 10000;  // 100.00% .. 0 (empty); refills full on each engine start
 uint32_t engineSeconds = 0;      // total engine run-time (hour meter), persisted to NVS
-volatile bool overTempWarn = false, lowFuelWarn = false; // for the lightbar / rumble warnings
+volatile bool overTempWarn = false; // for the lightbar / rumble warnings
 bool overheatLockout = false;    // engine held OFF until it cools back down
 
 // FreeRTOS
@@ -1484,7 +1483,7 @@ void updateGamepadRumble() {
   if (millis() - lastMs < 60) return; // ~16 Hz refresh — smooth enough to PULSE the tracks
   lastMs = millis();
 
-  if (overTempWarn || batteryProtection || lowFuelWarn) { // OVERHEAT / LOW BATT / LOW FUEL: warning buzz
+  if (overTempWarn || batteryProtection) {          // OVERHEAT / LOW BATTERY: warning buzz
     uint32_t period = overTempWarn ? 500 : 1000;    // overheat buzzes faster/more urgent
     bool buzz = (millis() % period) < 200;
     gpController->playDualRumble(0, 90, buzz ? 200 : 0, buzz ? 255 : 0);
@@ -1538,11 +1537,6 @@ void updateGamepadLED() {
   if (batteryProtection) {                         // LOW BATTERY: hard red flash, overrides every mode
     bool on = (millis() % 600) < 300;
     gpController->setColorLED(on ? 255 : 0, 0, 0);
-    return;
-  }
-  if (lowFuelWarn) {                               // LOW FUEL: amber flash
-    bool on = (millis() % 700) < 350;
-    gpController->setColorLED(on ? 255 : 0, on ? 90 : 0, 0);
     return;
   }
 
@@ -2305,7 +2299,6 @@ void machineSystemsSim() {
   if (millis() - last < 250) return; // 4 Hz tick
   last = millis();
 
-  if (engineRunning && !wasRunning) fuelLevel = 10000;   // fresh tank on each start
   if (!engineRunning && wasRunning) saveEngineHours();     // persist hours when it stops
   wasRunning = engineRunning;
 
@@ -2319,20 +2312,11 @@ void machineSystemsSim() {
   else                  engineTemp = max((int32_t)engineTemp - tempFallRate, (int32_t)0);
   overTempWarn = engineRunning && engineTemp >= 850;   // in the red before it kills at 1000
 
-  // Fuel: burns with rpm + load; runs dry -> dies (refuels on next start).
-  if (engineRunning) {
-    int32_t burn = rpmF * (100 + load * 100 / cap) / 100;   // 0 .. ~1000
-    fuelLevel -= (int32_t)burn * fuelBurnRate / 100000;
-    if (fuelLevel < 0) fuelLevel = 0;
-  }
-  lowFuelWarn = engineRunning && fuelLevel <= (int32_t)lowFuelPercent * 100;
-
   // Kills — engine dies, you restart it.
   if (engineRunning) {
     bool lugged = (rpmF < stallRpm && load > cap * 3 / 4);
     stallTicks = lugged ? (uint8_t)(stallTicks + 1) : 0;
     if (engineTemp >= 1000)   { engineOn = false; overheatLockout = true; } // overheat: cool before restart
-    else if (fuelLevel <= 0)  { engineOn = false; }                         // out of fuel
     else if (stallTicks >= 2) { engineOn = false; }                         // lugged it dead (~0.5s)
   }
   if (overheatLockout) { engineOn = false; if (engineTemp < 700) overheatLockout = false; } // cooled -> can restart

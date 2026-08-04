@@ -83,16 +83,14 @@ boolean  pumpFromRpm     = false; // true = "Hydraulic mode" — GPIO33 outputs 
 int16_t  pumpIdlePercent = 25;    // pump throttle % at engine idle (keep above the brushless cogging point)
 uint16_t pumpArmMs       = 3000;  // hold pump at minimum this long at boot so a brushless ESC arms
 
-// --- Machine systems sim: coolant temp/overheat, fuel burn, lug stall, engine hours ---
-// Real consequences: flog it and it overheats & dies; run the tank dry and it sputters out; lug it
-// too hard under load and it stalls. All shut the engine OFF — you restart it (overheat makes you
-// wait for it to cool first). Fuel refills full on each start. Set simSystemsEnabled=false to disable.
+// --- Machine systems sim: coolant temp/overheat, lug stall, engine hours ---
+// Real consequences: flog it and it overheats & dies; lug it too hard under load and it stalls. Both
+// shut the engine OFF — you restart it (overheat makes you wait for it to cool first). No fuel model —
+// the RC pack is your fuel (see the battery monitor). Set simSystemsEnabled=false to disable the lot.
 boolean  simSystemsEnabled = true;
 int16_t  tempRiseRate   = 2;   // coolant heat-up per 250ms (higher = overheats sooner under heavy load)
 int16_t  tempFallRate   = 3;   // cool-down per 250ms when eased off / idling
 int16_t  turboSpoolRate = 3;   // turbo lag: whistle spool per 40ms (lower = laggier)
-uint16_t fuelBurnRate   = 14;  // fuel burn (higher = shorter tank; ~14 ≈ 25 min of hard running)
-int16_t  lowFuelPercent = 15;  // low-fuel warning below this %
 int16_t  stallRpm       = 45;  // under heavy load, if rpm lugs below this the engine STALLS (dies)
 
 // --- Implement (proportional valve) model: [lift, tilt, angle, ripper] ---
