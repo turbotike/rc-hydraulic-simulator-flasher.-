@@ -37,11 +37,12 @@ The result is a machine that feels like it has weight and power in reserve — a
 4. [Wiring it up](#wiring-it-up)
 5. [Driving with a game controller](#driving-with-a-game-controller)
 6. [Work lights](#work-lights)
-7. [Real hydraulics (Hydraulic mode)](#real-hydraulics-hydraulic-mode)
-8. [Sounds — use the Sound Technician](#sounds--use-the-sound-technician)
-9. [Reversing an output that runs backwards](#reversing-an-output-that-runs-backwards)
-10. [Troubleshooting](#troubleshooting)
-11. [FAQ](#faq)
+7. [Battery monitor & low-battery warning](#battery-monitor--low-battery-warning)
+8. [Real hydraulics (Hydraulic mode)](#real-hydraulics-hydraulic-mode)
+9. [Sounds — use the Sound Technician](#sounds--use-the-sound-technician)
+10. [Reversing an output that runs backwards](#reversing-an-output-that-runs-backwards)
+11. [Troubleshooting](#troubleshooting)
+12. [FAQ](#faq)
 
 ---
 
@@ -174,12 +175,30 @@ Wire your LED light bar between the header's output and the board's **+** and **
 
 ---
 
+## Battery monitor & low-battery warning
+
+The board watches your pack through the voltage divider on the DIYGuy999 PCB (pin VN / GPIO 39) — nothing extra to wire. At power-on it works out whether it's a **2S, 3S or 4S** LiPo by itself.
+
+When the pack drops below **3.4 V per cell**, it tells you three ways, so you bring it home before the LiPo is damaged:
+
+- a **spoken "low battery" warning** through the speaker (repeated every 45 s while it stays low — the other sounds duck so you hear it),
+- a **warning buzz** in the controller,
+- the controller **light bar flashing hard red**.
+
+It **only warns** — it never cuts the motors on you. On USB with no pack (under ~5.5 V) it stays quiet, so it won't nag on the bench.
+
+**Your own warning sound:** the low-battery voice is a normal sound slot — swap it for any clip in the **Sound Technician** (it ships with "Shake Hands with Danger"), and set its volume on the **Levels** tab.
+
+**Reading high or low?** The divider values and a fine-trim (`batteryDiodeDrop`) are in `src/config.h`. Put a multimeter on your pack and nudge the trim until they agree. You can also force the cell count (`batteryCellsOverride`) or switch the monitor off (`batteryMonitorEnabled`) there.
+
+---
+
 ## Real hydraulics (Hydraulic mode)
 
 Building an **actual hydraulic machine** — a real pump and valves, like a Burnie 3D-printed excavator — rather than the servo-driven sim? Flip on **Hydraulic mode** on the Machine tab and the board drives your **hydraulic pump ESC from the engine RPM**: it idles low and revs up with the throttle, so you **rev up to dig**, just like the real thing (and it's held at minimum at boot so a brushless ESC arms cleanly). Your **hydraulic control valves stay on the receiver's PWM**; the board runs the pump plus your electric **drive and swing** motors, all RPM-linked so the whole machine "wakes up" as you throttle on.
 
 - **Pump signal** comes off the **ESC header (GPIO 33)** — wire your pump ESC there. Tracks stay on CH1/CH2, swing on the **32** header.
-- Set the **idle pump speed** (`pumpIdlePercent`, ~25% default) high enough that a brushless motor spins smooth without cogging and holds a little pressure.
+- The **idle pump speed** (`pumpIdlePercent` in `src/config.h`, 25% by default) should be high enough that a brushless motor spins smooth without cogging and holds a little pressure. Raise it there if your pump stutters at idle.
 - Hydraulic mode is **RC only** — a Bluetooth pad can't run your valves — so turning it on automatically disables the gamepad option on the Controls tab.
 
 ---
@@ -218,6 +237,8 @@ Motors and actuators get wired however they land, so any output might run the wr
 | **Faint hiss/Bluetooth noise from the speaker with the engine off** | This is the ESP32's Bluetooth radio coupling into the audio hardware — it's a board-layout trait, not a bug, and it's masked once the engine's running. If it bugs you, it's a hardware fix: a decoupling cap on the amp input, a ferrite on the speaker leads, or wire the amp's **mute/shutdown pin** so the firmware can cut it when idle (ask if your amp has one). |
 | **Page stuck / looks wrong after an update** | Hard-refresh the browser: **Ctrl + Shift + R**. Only run **one** copy of the app at a time. |
 | **"Nothing to save"** | You haven't changed anything since the last save. |
+| **It says "low battery" but my pack is full** (or never warns) | The battery reading needs calibrating for your board — see [Battery monitor](#battery-monitor--low-battery-warning). Check it detected the right cell count (2S/3S/4S) at power-on. |
+| **My new settings / features aren't there after downloading** | Make sure you grabbed the **latest** release from the [Releases page](../../releases) — the version number is in the release title. |
 
 ---
 
@@ -235,9 +256,9 @@ Motors and actuators get wired however they land, so any output might run the wr
 
 **Where do my settings live?** In the machine's config — saved when you press **Save**, and baked into the firmware when you **Flash**.
 
-**How do I read the engine hours?** Two ways. Plugged in: on the **Flash** tab there's an **Engine hours** card — pick your port and hit **Read hours** (or **Reset to 0** for a fresh build). Trackside: **hold both bumpers + tap D-pad ◂** on a gamepad (or, on RC, engine off + hold the horn ~2 s) and it **blinks the hours out on the light** — long flash = tens, short = ones.
+**How do I read the engine hours?** Two ways. Plugged in: on the **Flash** tab there's an **Engine hours** card — pick your port and hit **Read hours**. Trackside: **hold both bumpers + tap D-pad ◂** on a gamepad (or, on RC, with the engine off, hold the horn ~2 s) and it **blinks the hours out on the work light** — long flash = tens, short = ones. The hours are saved on the board, so they survive power-offs.
 
-**Can I keep configs for several machines?** Yes — the **Machine tab → Vehicle Profiles** lets you save, export, and re-import a full config per machine. You still flash one at a time, but you don't have to re-enter everything.
+**Can I keep configs for several machines?** Not in the app yet — it holds one setup at a time. To keep a second machine's setup, copy `src/config.h` somewhere safe and swap it back in before you open the app.
 
 ---
 
